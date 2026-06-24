@@ -14,12 +14,12 @@ import type { JobPosting, Candidate, PaginatedResponse } from "@emp-recruit/shar
 import { cn, formatDate } from "@/lib/utils";
 
 const STAGE_LABELS: Record<string, { label: string; color: string }> = {
-  applied: { label: "Applied", color: "bg-blue-500" },
-  screened: { label: "Screened", color: "bg-indigo-500" },
-  interview: { label: "Interview", color: "bg-purple-500" },
-  offer: { label: "Offer", color: "bg-amber-500" },
-  hired: { label: "Hired", color: "bg-green-500" },
-  rejected: { label: "Rejected", color: "bg-red-500" },
+  applied: { label: "Applied", color: "from-blue-400 to-blue-500" },
+  screened: { label: "Screened", color: "from-indigo-400 to-indigo-500" },
+  interview: { label: "Interview", color: "from-purple-400 to-purple-500" },
+  offer: { label: "Offer", color: "from-amber-400 to-amber-500" },
+  hired: { label: "Hired", color: "from-green-400 to-green-500" },
+  rejected: { label: "Rejected", color: "from-red-400 to-red-500" },
 };
 
 const STAGE_BADGE: Record<string, string> = {
@@ -155,38 +155,46 @@ export function DashboardPage() {
           <Link
             key={stat.label}
             to={stat.link}
-            className="group rounded-lg border border-gray-200 bg-white p-6 hover:shadow-md transition-shadow"
+            className="group rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
           >
             <div className="flex items-center justify-between">
-              <div className={cn("rounded-lg p-2.5", stat.color)}>
+              <div className={cn("rounded-xl p-3", stat.color)}>
                 <stat.icon className="h-5 w-5" />
               </div>
-              <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              <ArrowUpRight className="h-4 w-4 text-gray-300 transition-colors group-hover:text-brand-500" />
             </div>
-            <p className="mt-4 text-2xl font-bold text-gray-900">{stat.value}</p>
-            <p className="mt-1 text-sm text-gray-500">{stat.label}</p>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-gray-900">{stat.value}</p>
+            <p className="mt-0.5 text-sm font-medium text-gray-500">{stat.label}</p>
           </Link>
         ))}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Pipeline Stage Distribution */}
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Pipeline Distribution</h2>
-          <div className="space-y-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Pipeline Distribution</h2>
+            <span className="text-xs font-medium text-gray-400">
+              {Object.values(stageDistribution).reduce((a, b) => a + b, 0)} total
+            </span>
+          </div>
+          <div className="space-y-4">
             {Object.entries(STAGE_LABELS).map(([key, { label, color }]) => {
               const count = stageDistribution[key] ?? 0;
               const percentage = maxStageCount > 0 ? (count / maxStageCount) * 100 : 0;
               return (
                 <div key={key}>
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="mb-1.5 flex items-center justify-between text-sm">
                     <span className="font-medium text-gray-700">{label}</span>
-                    <span className="text-gray-500">{count}</span>
+                    <span className="font-semibold text-gray-900">{count}</span>
                   </div>
-                  <div className="h-3 w-full rounded-full bg-gray-100">
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                     <div
-                      className={cn("h-3 rounded-full transition-all", color)}
-                      style={{ width: `${Math.max(percentage, 2)}%` }}
+                      className={cn(
+                        "h-full rounded-full bg-gradient-to-r transition-all duration-500",
+                        color,
+                      )}
+                      style={{ width: `${count > 0 ? Math.max(percentage, 3) : 0}%` }}
                     />
                   </div>
                 </div>
@@ -196,7 +204,7 @@ export function DashboardPage() {
         </div>
 
         {/* Recent Applications */}
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Recent Applications</h2>
             {/* #11 — was `/jobs`; Candidates is the closest list view for
@@ -220,13 +228,18 @@ export function DashboardPage() {
                 <Link
                   key={app.id}
                   to={app.candidate_id ? `/candidates/${app.candidate_id}` : `/jobs/${app.job_id}`}
-                  className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50 hover:border-brand-200 transition-colors"
+                  className="flex items-center justify-between rounded-lg border border-gray-100 p-3 transition-colors hover:border-brand-200 hover:bg-gray-50"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {app.candidate_first_name} {app.candidate_last_name}
-                    </p>
-                    <p className="text-xs text-gray-500 truncate">{app.job_title}</p>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">
+                      {`${app.candidate_first_name?.[0] ?? ""}${app.candidate_last_name?.[0] ?? ""}`.toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-gray-900">
+                        {app.candidate_first_name} {app.candidate_last_name}
+                      </p>
+                      <p className="truncate text-xs text-gray-500">{app.job_title}</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-3 ml-4">
                     <span
