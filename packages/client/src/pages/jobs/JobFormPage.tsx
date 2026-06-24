@@ -38,6 +38,7 @@ interface FormData {
   salary_max: string;
   salary_currency: string;
   remote_policy: string;
+  is_internal: boolean;
   requirements: string;
   benefits: string;
   skills: string;
@@ -56,6 +57,7 @@ const INITIAL: FormData = {
   salary_max: "",
   salary_currency: "INR",
   remote_policy: "onsite",
+  is_internal: false,
   requirements: "",
   benefits: "",
   skills: "",
@@ -106,6 +108,7 @@ export function JobFormPage() {
         salary_currency: j.salary_currency,
         // #30 — preserve whatever the server has stored; default only if missing
         remote_policy: (j as any).remote_policy || "onsite",
+        is_internal: Boolean((j as any).is_internal),
         requirements: j.requirements ?? "",
         benefits: j.benefits ?? "",
         skills: j.skills
@@ -223,6 +226,7 @@ export function JobFormPage() {
       salary_currency: form.salary_currency,
       // #30 — always persist remote_policy; previously dropped on the floor.
       remote_policy: form.remote_policy,
+      is_internal: form.is_internal,
     };
 
     if (form.department) payload.department = form.department;
@@ -245,7 +249,13 @@ export function JobFormPage() {
 
   const saving = createMutation.isPending || updateMutation.isPending;
 
-  function field(label: string, name: keyof FormData, type = "text", opts?: { required?: boolean; placeholder?: string; min?: number }) {
+  // Only string-valued fields go through this generic text-input helper
+  // (is_internal is a boolean rendered as a checkbox separately).
+  type StringFieldKey = {
+    [K in keyof FormData]: FormData[K] extends string ? K : never;
+  }[keyof FormData];
+
+  function field(label: string, name: StringFieldKey, type = "text", opts?: { required?: boolean; placeholder?: string; min?: number }) {
     return (
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -394,6 +404,22 @@ export function JobFormPage() {
               </select>
             </div>
           </div>
+
+          {/* Internal-only visibility */}
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <input
+              type="checkbox"
+              checked={form.is_internal}
+              onChange={(e) => setForm((p) => ({ ...p, is_internal: e.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-gray-800">Internal only</span>
+              <span className="block text-xs text-gray-500">
+                Show this job on the Internal Jobs page for employees, but hide it from the public career page.
+              </span>
+            </span>
+          </label>
         </div>
 
         {/* Experience & Salary */}

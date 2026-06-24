@@ -93,6 +93,7 @@ export async function getPublicJobs(slug: string): Promise<JobPosting[]> {
     filters: {
       organization_id: page.organization_id,
       status: "open",
+      is_internal: false, // internal-only jobs are hidden from the public career page
     },
     sort: { field: "published_at", order: "desc" },
     limit: 100,
@@ -112,6 +113,7 @@ export async function getPublicJobDetail(slug: string, jobId: string): Promise<J
     id: jobId,
     organization_id: page.organization_id,
     status: "open",
+    is_internal: false, // can't deep-link to an internal job from the public page
   });
   if (!job) {
     throw new NotFoundError("Job posting", jobId);
@@ -143,11 +145,12 @@ export async function submitPublicApplication(
     throw new NotFoundError("Career page", slug);
   }
 
-  // Validate job exists and is open
+  // Validate job exists, is open, and isn't internal-only
   const job = await db.findOne<JobPosting>("job_postings", {
     id: jobId,
     organization_id: page.organization_id,
     status: "open",
+    is_internal: false, // can't apply to an internal job via the public form
   });
   if (!job) {
     throw new NotFoundError("Job posting", jobId);

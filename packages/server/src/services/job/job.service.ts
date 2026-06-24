@@ -57,6 +57,7 @@ export async function createJob(
     max_applications?: number;
     closes_at?: string;
     remote_policy?: string;
+    is_internal?: boolean;
   },
   createdBy: number,
 ): Promise<JobPosting> {
@@ -86,6 +87,7 @@ export async function createJob(
     max_applications: data.max_applications ?? null,
     closes_at: data.closes_at ? new Date(data.closes_at) : null,
     remote_policy: data.remote_policy ?? "onsite",
+    is_internal: data.is_internal ?? false,
     created_by: createdBy,
   };
 

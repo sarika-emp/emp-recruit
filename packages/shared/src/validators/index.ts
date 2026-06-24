@@ -61,6 +61,8 @@ const jobBaseSchema = z.object({
   // #30 — remote policy (onsite / remote / hybrid). The frontend form has
   // always had this select; now it actually gets stored.
   remote_policy: z.enum(["onsite", "remote", "hybrid"]).default("onsite"),
+  // Internal-only job — appears on Internal Jobs but not the public career page.
+  is_internal: z.boolean().optional(),
   // #1354 — Accept both ISO datetime and YYYY-MM-DD date strings
   closes_at: z
     .string()
