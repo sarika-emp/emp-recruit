@@ -141,13 +141,20 @@ export async function getCandidateApplications(
   const candidate = await db.findOne<Candidate>("candidates", { id: candidateId, organization_id: orgId });
   if (!candidate) throw new NotFoundError("Candidate", candidateId);
 
-  const result = await db.findMany<Application>("applications", {
-    filters: { organization_id: orgId, candidate_id: candidateId },
-    sort: { field: "applied_at", order: "desc" },
-    limit: 100,
-  });
+  // Join job_postings so each application carries the job title + department —
+  // a plain findMany returns only the raw applications columns, so the UI fell
+  // back to the literal label "Job".
+  const rows = await db.raw<any[][]>(
+    `SELECT a.*, j.title AS job_title, j.department AS job_department
+     FROM applications a
+     LEFT JOIN job_postings j ON j.id = a.job_id
+     WHERE a.organization_id = ? AND a.candidate_id = ?
+     ORDER BY a.applied_at DESC
+     LIMIT 100`,
+    [orgId, candidateId],
+  );
 
-  return result.data;
+  return (rows[0] ?? []) as Application[];
 }
 
 export async function updateResumePath(
