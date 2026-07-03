@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import fs from "fs/promises";
-import path from "path";
+import { extractResumeText } from "../ai/resume-parser.service";
 import { getDB } from "../../db/adapters";
 import { NotFoundError } from "../../utils/errors";
 import { ALL_SKILLS } from "@emp-recruit/shared";
@@ -27,107 +26,19 @@ interface ScoreResult {
 }
 
 // ---------------------------------------------------------------------------
-// Resume Text Extraction (basic MVP — no external libs)
+// Resume Text Extraction
 // ---------------------------------------------------------------------------
+// The PDF/DOCX/text extraction now lives in the shared resume-parser service
+// (foundation piece #2) so the scorer, autofill, and search agents all parse
+// resumes identically. This wrapper is kept for backward compatibility — the
+// scorer and its tests call parseResumeText() unchanged.
 
 /**
- * Extract raw text from a resume file.
- * - PDF: read raw buffer and extract visible text between stream markers
- * - DOCX: read the XML content inside the zip and strip tags
- * - TXT/other: read as UTF-8
+ * Extract raw text from a resume file. Delegates to the shared resume parser.
+ * @deprecated prefer resumeParserService.extractResumeText / parseResume.
  */
 export async function parseResumeText(filePath: string): Promise<string> {
-  const ext = path.extname(filePath).toLowerCase();
-  const absolutePath = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(process.cwd(), filePath);
-
-  try {
-    await fs.access(absolutePath);
-  } catch {
-    logger.warn(`Resume file not found: ${absolutePath}`);
-    return "";
-  }
-
-  if (ext === ".pdf") {
-    return extractTextFromPDF(absolutePath);
-  }
-
-  if (ext === ".docx") {
-    return extractTextFromDOCX(absolutePath);
-  }
-
-  // Fallback: read as plain text
-  const content = await fs.readFile(absolutePath, "utf-8");
-  return content;
-}
-
-/**
- * Basic PDF text extraction — reads raw bytes, finds text between
- * parentheses in stream sections and Tj/TJ operators. This is a
- * best-effort MVP approach that works for most text-based PDFs.
- */
-async function extractTextFromPDF(filePath: string): Promise<string> {
-  const buffer = await fs.readFile(filePath);
-  const raw = buffer.toString("latin1");
-
-  const textParts: string[] = [];
-
-  // Extract text from PDF text objects: strings inside parentheses near Tj/TJ operators
-  const textRegex = /\(([^)]*)\)\s*Tj/g;
-  let match: RegExpExecArray | null;
-  while ((match = textRegex.exec(raw)) !== null) {
-    textParts.push(match[1]);
-  }
-
-  // Also try to extract from TJ arrays: [(text) num (text) ...] TJ
-  const tjArrayRegex = /\[([^\]]*)\]\s*TJ/g;
-  while ((match = tjArrayRegex.exec(raw)) !== null) {
-    const inner = match[1];
-    const innerTextRegex = /\(([^)]*)\)/g;
-    let innerMatch: RegExpExecArray | null;
-    while ((innerMatch = innerTextRegex.exec(inner)) !== null) {
-      textParts.push(innerMatch[1]);
-    }
-  }
-
-  // Decode basic PDF escape sequences
-  const decoded = textParts
-    .map((t) =>
-      t
-        .replace(/\\n/g, "\n")
-        .replace(/\\r/g, "\r")
-        .replace(/\\t/g, "\t")
-        .replace(/\\\\/g, "\\")
-        .replace(/\\([()])/g, "$1"),
-    )
-    .join(" ");
-
-  return decoded || raw.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s+/g, " ");
-}
-
-/**
- * Basic DOCX text extraction — DOCX is a ZIP containing XML files.
- * We read the raw bytes, find XML-like content, and strip tags.
- */
-async function extractTextFromDOCX(filePath: string): Promise<string> {
-  const buffer = await fs.readFile(filePath);
-  const raw = buffer.toString("utf-8");
-
-  // DOCX XML content contains <w:t> tags with text
-  const textParts: string[] = [];
-  const wtRegex = /<w:t[^>]*>([^<]*)<\/w:t>/g;
-  let match: RegExpExecArray | null;
-  while ((match = wtRegex.exec(raw)) !== null) {
-    textParts.push(match[1]);
-  }
-
-  if (textParts.length > 0) {
-    return textParts.join(" ");
-  }
-
-  // Fallback: strip all XML tags
-  return raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return extractResumeText(filePath);
 }
 
 // ---------------------------------------------------------------------------
