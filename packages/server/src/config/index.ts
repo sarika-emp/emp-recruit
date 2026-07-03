@@ -50,6 +50,28 @@ export const config = {
     from: process.env.SMTP_FROM || "recruit@empcloud.com",
   },
 
+  // AI / LLM (shared llm.service — the single choke point for every AI agent).
+  // Provider is auto-selected by whichever key is present; with NO key the
+  // service is a no-op and every caller falls back to its deterministic path
+  // (e.g. the JD generator's template mode), so the module runs keyless today.
+  ai: {
+    // "auto" picks anthropic if ANTHROPIC_API_KEY is set, else openai if
+    // OPENAI_API_KEY is set, else "none" (template/heuristic fallbacks only).
+    provider: (process.env.AI_PROVIDER || "auto") as "auto" | "anthropic" | "openai" | "none",
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+    openaiApiKey: process.env.OPENAI_API_KEY || "",
+    // Per-tier model IDs — overridable via env without code changes.
+    models: {
+      deep: process.env.AI_MODEL_DEEP || "claude-opus-4-8",
+      balanced: process.env.AI_MODEL_BALANCED || "claude-sonnet-5",
+      cheap: process.env.AI_MODEL_CHEAP || "claude-haiku-4-5",
+      // OpenAI fallbacks (used only when provider resolves to openai)
+      openai: process.env.AI_MODEL_OPENAI || "gpt-4o-mini",
+    },
+    maxRetries: parseInt(process.env.AI_MAX_RETRIES || "2"),
+    requestTimeoutMs: parseInt(process.env.AI_TIMEOUT_MS || "60000"),
+  },
+
   // CORS
   cors: {
     origin: process.env.CORS_ORIGIN || "http://localhost:5179",

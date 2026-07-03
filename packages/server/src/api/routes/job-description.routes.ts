@@ -28,7 +28,7 @@ const generateHandler = async (req: Request, res: Response, next: NextFunction) 
       throw new ValidationError("Invalid input", details);
     }
 
-    const result = await jdService.generateJobDescription(parsed.data);
+    const result = await jdService.generateJobDescription(parsed.data, req.user!.empcloudOrgId);
     sendSuccess(res, result);
   } catch (err) {
     next(err);

@@ -1,10 +1,12 @@
 // ============================================================================
 // AI JOB DESCRIPTION GENERATOR SERVICE
 // Generates job descriptions from basic inputs using templates.
-// Optionally uses OpenAI GPT if OPENAI_API_KEY is configured.
+// Optionally uses the shared LLM service (any configured provider) — falls back
+// to the deterministic template when no LLM key is configured.
 // ============================================================================
 
 import { logger } from "../../utils/logger";
+import { llmService } from "../ai/llm.service";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -303,12 +305,25 @@ function generateFromTemplate(input: JDInput): GeneratedJD {
 // OpenAI Generator (optional)
 // ---------------------------------------------------------------------------
 
-async function generateWithOpenAI(input: JDInput): Promise<GeneratedJD | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+// Shape the LLM is asked to return.
+interface JDParsed {
+  overview: string;
+  responsibilities: string[];
+  requirements: string[];
+  nice_to_have: string[];
+  benefits: string[];
+}
 
-  try {
-    const prompt = `Generate a professional job description for the following position:
+/**
+ * Generate a JD via the shared LLM service. Returns null when no provider is
+ * configured or the call fails/parses badly, so the caller falls back to the
+ * deterministic template — identical behaviour to the previous inline OpenAI
+ * path, but now routed through the one wrapper every AI agent shares.
+ *
+ * @param orgId  tenant tag for cost/audit attribution.
+ */
+async function generateWithLLM(input: JDInput, orgId: number): Promise<GeneratedJD | null> {
+  const prompt = `Generate a professional job description for the following position:
 
 Title: ${input.title}
 Department: ${input.department || "Not specified"}
@@ -326,59 +341,38 @@ Return a JSON object with these fields:
 
 Return ONLY valid JSON, no markdown wrapping.`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "You are an expert HR copywriter who creates compelling job descriptions." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 2000,
-      }),
-    });
+  const result = await llmService.completeJson<JDParsed>(
+    { organizationId: orgId, feature: "jd-generator" },
+    [{ role: "user", content: prompt }],
+    {
+      tier: "balanced",
+      system: "You are an expert HR copywriter who creates compelling job descriptions.",
+      temperature: 0.7,
+      maxTokens: 2000,
+    },
+  );
+  if (!result) return null;
 
-    if (!response.ok) {
-      logger.warn(`OpenAI API error: ${response.status} ${response.statusText}`);
-      return null;
-    }
+  const parsed = result.parsed;
+  // Defensive: the model must return the fields we render.
+  if (!parsed?.overview || !Array.isArray(parsed.responsibilities)) return null;
 
-    const data = await response.json() as any;
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return null;
+  const full_description = [
+    `## About the Role\n\n${parsed.overview}`,
+    `## Responsibilities\n\n${(parsed.responsibilities || []).map((r) => `- ${r}`).join("\n")}`,
+    `## Requirements\n\n${(parsed.requirements || []).map((r) => `- ${r}`).join("\n")}`,
+    `## Nice to Have\n\n${(parsed.nice_to_have || []).map((r) => `- ${r}`).join("\n")}`,
+    `## Benefits\n\n${(parsed.benefits || []).map((b) => `- ${b}`).join("\n")}`,
+  ].join("\n\n");
 
-    // Try to parse JSON from the response (handle potential markdown code blocks)
-    let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) jsonStr = jsonMatch[1];
-
-    const parsed = JSON.parse(jsonStr.trim());
-
-    const full_description = [
-      `## About the Role\n\n${parsed.overview}`,
-      `## Responsibilities\n\n${parsed.responsibilities.map((r: string) => `- ${r}`).join("\n")}`,
-      `## Requirements\n\n${parsed.requirements.map((r: string) => `- ${r}`).join("\n")}`,
-      `## Nice to Have\n\n${parsed.nice_to_have.map((r: string) => `- ${r}`).join("\n")}`,
-      `## Benefits\n\n${parsed.benefits.map((b: string) => `- ${b}`).join("\n")}`,
-    ].join("\n\n");
-
-    return {
-      overview: parsed.overview,
-      responsibilities: parsed.responsibilities,
-      requirements: parsed.requirements,
-      nice_to_have: parsed.nice_to_have,
-      benefits: parsed.benefits,
-      full_description,
-    };
-  } catch (err) {
-    logger.warn("OpenAI generation failed, falling back to template:", err);
-    return null;
-  }
+  return {
+    overview: parsed.overview,
+    responsibilities: parsed.responsibilities,
+    requirements: parsed.requirements,
+    nice_to_have: parsed.nice_to_have,
+    benefits: parsed.benefits,
+    full_description,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -389,15 +383,19 @@ Return ONLY valid JSON, no markdown wrapping.`;
  * Generate a job description from basic inputs.
  * Uses OpenAI if OPENAI_API_KEY is set, otherwise falls back to templates.
  */
-export async function generateJobDescription(input: JDInput): Promise<GeneratedJD & { source: "ai" | "template" }> {
-  // Try OpenAI first if API key is available
-  const aiResult = await generateWithOpenAI(input);
+export async function generateJobDescription(
+  input: JDInput,
+  orgId: number = 0,
+): Promise<GeneratedJD & { source: "ai" | "template" }> {
+  // Try the shared LLM service first (returns null if no provider/key or on
+  // failure). Threads orgId for tenant-tagged cost/audit; 0 = system/unattributed.
+  const aiResult = await generateWithLLM(input, orgId);
   if (aiResult) {
-    logger.info(`Job description generated via OpenAI for: ${input.title}`);
+    logger.info(`Job description generated via LLM for: ${input.title}`);
     return { ...aiResult, source: "ai" };
   }
 
-  // Fallback to template-based generation
+  // Fallback to deterministic template-based generation (also the keyless path).
   const templateResult = generateFromTemplate(input);
   logger.info(`Job description generated via template for: ${input.title}`);
   return { ...templateResult, source: "template" };
