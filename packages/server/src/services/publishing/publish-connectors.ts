@@ -109,7 +109,9 @@ function makeStubConnector(spec: BoardSpec): PublishConnector {
           status: "pending",
           externalRef: null,
           externalUrl: null,
-          detail: `${spec.label} is not connected. ${spec.requirements}`,
+          // Concise — the board's full setup requirements are shown separately
+          // in the UI, so don't repeat them here.
+          detail: "Queued — connect this board to publish (see setup requirements).",
         };
       }
       return {
