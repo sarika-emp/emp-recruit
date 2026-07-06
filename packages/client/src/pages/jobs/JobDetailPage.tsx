@@ -19,6 +19,10 @@ import {
   Loader2,
   GitCompareArrows,
   Trash2,
+  Globe,
+  Send,
+  CheckCircle2,
+  Lock,
 } from "lucide-react";
 import { apiGet, apiPatch, apiPost, apiDelete } from "@/api/client";
 import type { JobPosting, PaginatedResponse, ApplicationStage, CandidateScore } from "@emp-recruit/shared";
@@ -458,6 +462,9 @@ export function JobDetailPage() {
         </div>
       </div>
 
+      {/* Publish to job boards */}
+      <JobPublishingPanel jobId={job.id} />
+
       {/* Kanban Pipeline */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -791,6 +798,185 @@ export function JobDetailPage() {
         onConfirm={() => deleteMutation.mutate()}
         onCancel={() => setShowDeleteConfirm(false)}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Publish to job boards (outbound publishing scaffold)
+// ---------------------------------------------------------------------------
+
+interface BoardStatus {
+  key: string;
+  label: string;
+  mechanism: string;
+  requirements: string;
+  enabled: boolean;
+  configured: boolean;
+  liveCapable: boolean;
+}
+interface Publication {
+  board: string;
+  status: string;
+  external_url: string | null;
+  status_detail: string | null;
+  updated_at: string;
+}
+
+const PUB_STATUS_CLS: Record<string, string> = {
+  published: "bg-green-100 text-green-700",
+  pending: "bg-amber-100 text-amber-700",
+  failed: "bg-red-100 text-red-700",
+  removed: "bg-gray-100 text-gray-500",
+  draft: "bg-gray-100 text-gray-500",
+};
+
+function JobPublishingPanel({ jobId }: { jobId: string }) {
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const boardsQuery = useQuery({
+    queryKey: ["publish-boards"],
+    queryFn: () => apiGet<BoardStatus[]>("/job-publishing/boards"),
+  });
+  const boards = boardsQuery.data?.data ?? [];
+
+  const pubsQuery = useQuery({
+    queryKey: ["publications", jobId],
+    queryFn: () => apiGet<Publication[]>(`/job-publishing/jobs/${jobId}/publications`),
+  });
+  const pubs = pubsQuery.data?.data ?? [];
+  const pubByBoard = new Map(pubs.map((p) => [p.board, p]));
+
+  const publish = useMutation({
+    mutationFn: (targets: string[]) =>
+      apiPost(`/job-publishing/jobs/${jobId}/publish`, { boards: targets }),
+    onSuccess: (res) => {
+      const results = (res.data as { board: string; status: string }[]) ?? [];
+      const sent = results.length;
+      const pending = results.filter((r) => r.status === "pending").length;
+      toast.success(
+        pending
+          ? `Queued ${sent} board(s) — ${pending} awaiting connection setup`
+          : `Published to ${sent} board(s)`,
+      );
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ["publications", jobId] });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error?.message || "Publish failed"),
+  });
+
+  const unpublish = useMutation({
+    mutationFn: (board: string) =>
+      apiPost(`/job-publishing/jobs/${jobId}/unpublish`, { board }),
+    onSuccess: () => {
+      toast.success("Removed from board");
+      qc.invalidateQueries({ queryKey: ["publications", jobId] });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error?.message || "Could not remove"),
+  });
+
+  function toggle(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+          <Globe className="h-5 w-5 text-brand-600" /> Publish to job boards
+        </h2>
+        <button
+          onClick={() => publish.mutate([...selected])}
+          disabled={publish.isPending || selected.size === 0}
+          className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          {publish.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          Publish selected
+        </button>
+      </div>
+
+      <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+        <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          Board connectors are scaffolded but not yet live. Publishing records intent per board;
+          each board goes live once its feed or employer-API credentials are wired. We never post
+          to a board we can't reach.
+        </span>
+      </div>
+
+      {boardsQuery.isLoading ? (
+        <div className="mt-4 flex justify-center py-6">
+          <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+        </div>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {boards.map((b) => {
+            const pub = pubByBoard.get(b.key);
+            const checked = selected.has(b.key);
+            return (
+              <div
+                key={b.key}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3"
+              >
+                <label className="flex flex-1 items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(b.key)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">{b.label}</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                        {b.mechanism === "xml_feed" ? "XML feed" : "Employer API"}
+                      </span>
+                      {b.configured ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> credentials set
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                          <Lock className="h-3.5 w-3.5" /> not connected
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-gray-500">{b.requirements}</span>
+                    {pub?.status_detail && pub.status !== "published" && (
+                      <span className="mt-1 block text-xs text-amber-600">{pub.status_detail}</span>
+                    )}
+                  </span>
+                </label>
+                <div className="flex shrink-0 items-center gap-2">
+                  {pub && (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+                        PUB_STATUS_CLS[pub.status] ?? "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {pub.status}
+                    </span>
+                  )}
+                  {pub && pub.status !== "removed" && (
+                    <button
+                      onClick={() => unpublish.mutate(b.key)}
+                      disabled={unpublish.isPending}
+                      className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
