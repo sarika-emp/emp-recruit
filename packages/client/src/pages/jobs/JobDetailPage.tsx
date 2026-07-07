@@ -814,6 +814,7 @@ interface BoardStatus {
   enabled: boolean;
   configured: boolean;
   liveCapable: boolean;
+  feedUrl?: string | null;
 }
 interface Publication {
   board: string;
@@ -936,7 +937,11 @@ function JobPublishingPanel({ jobId }: { jobId: string }) {
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
                         {b.mechanism === "xml_feed" ? "XML feed" : "Employer API"}
                       </span>
-                      {b.configured ? (
+                      {b.liveCapable ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Live
+                        </span>
+                      ) : b.configured ? (
                         <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                           <CheckCircle2 className="h-3.5 w-3.5" /> credentials set
                         </span>
@@ -947,6 +952,23 @@ function JobPublishingPanel({ jobId }: { jobId: string }) {
                       )}
                     </span>
                     <span className="mt-0.5 block text-xs text-gray-500">{b.requirements}</span>
+                    {b.liveCapable && b.feedUrl && (
+                      <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-gray-500">Feed URL (submit to Indeed once):</span>
+                        <code className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">{b.feedUrl}</code>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            navigator.clipboard.writeText(b.feedUrl!);
+                            toast.success("Feed URL copied");
+                          }}
+                          className="text-brand-600 hover:underline"
+                        >
+                          Copy
+                        </button>
+                      </span>
+                    )}
                     {pub?.status_detail && pub.status !== "published" && (
                       <span className="mt-1 block text-xs text-amber-600">{pub.status_detail}</span>
                     )}

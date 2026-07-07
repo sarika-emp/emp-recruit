@@ -18,8 +18,11 @@ import { logger } from "../../utils/logger";
 import {
   PUBLISH_CONNECTORS,
   getPublishConnector,
-  type BoardKey,
 } from "./publish-connectors";
+import {
+  ensureIndeedFeedToken,
+  indeedFeedUrl,
+} from "./indeed-feed.service";
 
 interface JobRow {
   id: string;
@@ -55,8 +58,10 @@ export interface BoardStatus {
   requirements: string;
   enabled: boolean;
   configured: boolean;
-  /** True only if the board could actually publish today (never true for stubs). */
+  /** True only if the board could actually publish today (live connector). */
   liveCapable: boolean;
+  /** For live feed-based boards (Indeed): the public feed URL to give the board. */
+  feedUrl?: string | null;
 }
 
 /** List every board + its per-org settings for the publish UI. */
@@ -68,21 +73,33 @@ export async function getBoards(orgId: number): Promise<BoardStatus[]> {
   });
   const byBoard = new Map(result.data.map((r) => [r.board, r]));
 
-  return PUBLISH_CONNECTORS.map((c) => {
+  const out: BoardStatus[] = [];
+  for (const c of PUBLISH_CONNECTORS) {
     const s = byBoard.get(c.key);
     const configured = Boolean(s?.credentials_configured);
-    return {
+    // A connector is live-capable when its own isConfigured() reports true for
+    // this org's credential state (Indeed's live connector always does; stubs
+    // never do because their publish() only returns "pending").
+    const liveCapable = c.key === "indeed";
+
+    let feedUrl: string | null | undefined;
+    if (c.key === "indeed") {
+      const token = await ensureIndeedFeedToken(orgId);
+      feedUrl = indeedFeedUrl(token);
+    }
+
+    out.push({
       key: c.key,
       label: c.label,
       mechanism: c.mechanism,
       requirements: c.requirements,
       enabled: Boolean(s?.enabled),
       configured,
-      // Stubs are never live-capable; this stays false until a real connector
-      // replaces the stub. Kept explicit so the UI can be honest.
-      liveCapable: false,
-    };
-  });
+      liveCapable,
+      feedUrl,
+    });
+  }
+  return out;
 }
 
 /** Read a job (org-scoped) into the connector's publish input. */
@@ -178,10 +195,18 @@ export async function publishToBoards(
       configured,
     );
 
+    // For the live Indeed connector, the "external URL" is the org's feed URL
+    // that Indeed crawls — attach it so the UI can surface it.
+    let externalUrl = outcome.externalUrl ?? null;
+    if (board === "indeed" && outcome.status === "published") {
+      const token = await ensureIndeedFeedToken(orgId);
+      externalUrl = indeedFeedUrl(token);
+    }
+
     await upsertPublication(orgId, jobId, board, {
       status: outcome.status,
       external_ref: outcome.externalRef ?? null,
-      external_url: outcome.externalUrl ?? null,
+      external_url: externalUrl,
       status_detail: outcome.detail,
       published_by: actorId,
       published_at: outcome.status === "published" ? new Date() : null,

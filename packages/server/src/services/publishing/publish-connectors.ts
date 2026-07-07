@@ -57,6 +57,8 @@ interface BoardSpec {
   requirements: string;
 }
 
+// Stubbed boards (still credential-gated / not implemented). Indeed is NOT here
+// — it has a real connector below.
 const BOARDS: BoardSpec[] = [
   {
     key: "linkedin",
@@ -65,14 +67,6 @@ const BOARDS: BoardSpec[] = [
     requirements:
       "LinkedIn crawls an XML job feed (free basic listing) or via the Job Posting API " +
       "with a LinkedIn Talent partner agreement. Not yet connected.",
-  },
-  {
-    key: "indeed",
-    label: "Indeed",
-    mechanism: "xml_feed",
-    requirements:
-      "Indeed crawls an Indeed-format XML feed (free organic listings; sponsored optional). " +
-      "Publish generates the feed entry once the feed URL is set up. Not yet connected.",
   },
   {
     key: "naukri",
@@ -88,6 +82,42 @@ const BOARDS: BoardSpec[] = [
     requirements: "Requires an Apna enterprise account + employer API access. Not yet connected.",
   },
 ];
+
+// --- LIVE: Indeed --- publishes by adding the job to a public XML feed Indeed
+// crawls (no paid account / API key for organic listings). "publish" marks the
+// job present in the feed; the service attaches the org's feed URL + ensures the
+// feed token. "unpublish" removes it from the feed (delists on the next crawl).
+const indeedConnector: PublishConnector = {
+  key: "indeed",
+  label: "Indeed",
+  mechanism: "xml_feed",
+  requirements:
+    "Live. Indeed crawls this org's public XML job feed (free organic listings). " +
+    "Submit the feed URL below to Indeed once, then published jobs appear automatically.",
+
+  // Indeed's organic feed needs no credentials — it's always capable.
+  isConfigured(): boolean {
+    return true;
+  },
+
+  async publish(): Promise<PublishOutcome> {
+    // The job is added to the feed by marking status='published'; the feed URL
+    // is attached by the service (which has org context). Indeed picks it up on
+    // its next crawl.
+    return {
+      status: "published",
+      externalRef: null, // set by the service to the feed URL
+      externalUrl: null,
+      detail: "Added to your Indeed XML feed. Indeed lists it on its next crawl.",
+    };
+  },
+
+  async unpublish(): Promise<{ ok: boolean; detail: string }> {
+    // Removing the publication row (status='removed') drops it from the feed;
+    // Indeed delists it on the next crawl.
+    return { ok: true, detail: "Removed from your Indeed feed. Indeed delists it on its next crawl." };
+  },
+};
 
 function makeStubConnector(spec: BoardSpec): PublishConnector {
   return {
@@ -131,7 +161,13 @@ function makeStubConnector(spec: BoardSpec): PublishConnector {
   };
 }
 
-export const PUBLISH_CONNECTORS: PublishConnector[] = BOARDS.map(makeStubConnector);
+// Order for the UI: LinkedIn, Indeed (live), Naukri, Apna.
+export const PUBLISH_CONNECTORS: PublishConnector[] = [
+  makeStubConnector(BOARDS[0]), // linkedin
+  indeedConnector, // LIVE
+  makeStubConnector(BOARDS[1]), // naukri
+  makeStubConnector(BOARDS[2]), // apna
+];
 
 export function getPublishConnector(board: string): PublishConnector | undefined {
   return PUBLISH_CONNECTORS.find((c) => c.key === board);
