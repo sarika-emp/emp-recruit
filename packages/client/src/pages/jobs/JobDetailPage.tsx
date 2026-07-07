@@ -954,7 +954,7 @@ function JobPublishingPanel({ jobId }: { jobId: string }) {
                     <span className="mt-0.5 block text-xs text-gray-500">{b.requirements}</span>
                     {b.liveCapable && b.feedUrl && (
                       <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-gray-500">Feed URL (submit to Indeed once):</span>
+                        <span className="text-gray-500">Feed URL (submit to {b.label} once):</span>
                         <code className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">{b.feedUrl}</code>
                         <button
                           type="button"
