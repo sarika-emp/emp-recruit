@@ -12,10 +12,10 @@
 // without exposing another org's jobs.
 // ============================================================================
 
-import { randomBytes, randomUUID } from "crypto";
 import { getDB } from "../../db/adapters";
 import { config } from "../../config";
 import { logger } from "../../utils/logger";
+import { ensureFeedToken, resolveOrgByFeedToken as resolveOrgByFeedTokenShared } from "./feed-token.service";
 
 interface JobRow {
   id: string;
@@ -154,49 +154,12 @@ export function indeedFeedUrl(feedToken: string): string {
   return `${api}/api/v1/public/feeds/indeed/${feedToken}.xml`;
 }
 
-interface SettingsRow {
-  id: string;
-  organization_id: number;
-  board: string;
-  feed_token: string | null;
-}
-
-/**
- * Ensure the org's Indeed board settings row exists and has a feed token.
- * Returns the token. Idempotent — reuses an existing token.
- */
+/** Ensure the org's Indeed feed token (delegates to the shared helper). */
 export async function ensureIndeedFeedToken(orgId: number): Promise<string> {
-  const db = getDB();
-  const row = (await db.findOne("board_publish_settings", {
-    organization_id: orgId,
-    board: "indeed",
-  })) as SettingsRow | null;
-
-  if (row?.feed_token) return row.feed_token;
-
-  const token = randomBytes(18).toString("hex"); // 36-char opaque, non-guessable
-  if (row) {
-    await db.update("board_publish_settings", row.id, { feed_token: token });
-  } else {
-    await db.create("board_publish_settings", {
-      id: randomUUID(),
-      organization_id: orgId,
-      board: "indeed",
-      enabled: true,
-      credentials_configured: false, // Indeed's organic feed needs no credentials
-      feed_token: token,
-    });
-  }
-  return token;
+  return ensureFeedToken(orgId, "indeed");
 }
 
-/** Resolve a feed token back to its org, or null if unknown. */
+/** Resolve an Indeed feed token back to its org, or null if unknown. */
 export async function resolveOrgByFeedToken(token: string): Promise<number | null> {
-  if (!token) return null;
-  const db = getDB();
-  const row = (await db.findOne("board_publish_settings", {
-    feed_token: token,
-    board: "indeed",
-  })) as SettingsRow | null;
-  return row ? row.organization_id : null;
+  return resolveOrgByFeedTokenShared(token, "indeed");
 }

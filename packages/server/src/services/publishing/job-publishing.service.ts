@@ -19,10 +19,18 @@ import {
   PUBLISH_CONNECTORS,
   getPublishConnector,
 } from "./publish-connectors";
-import {
-  ensureIndeedFeedToken,
-  indeedFeedUrl,
-} from "./indeed-feed.service";
+import { ensureIndeedFeedToken, indeedFeedUrl } from "./indeed-feed.service";
+import { ensureLinkedInFeedToken, linkedInFeedUrl } from "./linkedin-feed.service";
+
+// Boards that publish via a live public XML feed (no credentials needed).
+const LIVE_FEED_BOARDS = new Set(["indeed", "linkedin"]);
+
+/** Ensure the feed token for a live feed board and return its public feed URL. */
+async function feedUrlForBoard(orgId: number, board: string): Promise<string | null> {
+  if (board === "indeed") return indeedFeedUrl(await ensureIndeedFeedToken(orgId));
+  if (board === "linkedin") return linkedInFeedUrl(await ensureLinkedInFeedToken(orgId));
+  return null;
+}
 
 interface JobRow {
   id: string;
@@ -77,15 +85,14 @@ export async function getBoards(orgId: number): Promise<BoardStatus[]> {
   for (const c of PUBLISH_CONNECTORS) {
     const s = byBoard.get(c.key);
     const configured = Boolean(s?.credentials_configured);
-    // A connector is live-capable when its own isConfigured() reports true for
-    // this org's credential state (Indeed's live connector always does; stubs
-    // never do because their publish() only returns "pending").
-    const liveCapable = c.key === "indeed";
+    // A board is live-capable when it publishes via a live feed connector
+    // (Indeed, LinkedIn). Stubs never are — their publish() only returns
+    // "pending".
+    const liveCapable = LIVE_FEED_BOARDS.has(c.key);
 
     let feedUrl: string | null | undefined;
-    if (c.key === "indeed") {
-      const token = await ensureIndeedFeedToken(orgId);
-      feedUrl = indeedFeedUrl(token);
+    if (liveCapable) {
+      feedUrl = await feedUrlForBoard(orgId, c.key);
     }
 
     out.push({
@@ -195,12 +202,11 @@ export async function publishToBoards(
       configured,
     );
 
-    // For the live Indeed connector, the "external URL" is the org's feed URL
-    // that Indeed crawls — attach it so the UI can surface it.
+    // For live feed connectors (Indeed, LinkedIn) the "external URL" is the org's
+    // feed URL that the board crawls — attach it so the UI can surface it.
     let externalUrl = outcome.externalUrl ?? null;
-    if (board === "indeed" && outcome.status === "published") {
-      const token = await ensureIndeedFeedToken(orgId);
-      externalUrl = indeedFeedUrl(token);
+    if (LIVE_FEED_BOARDS.has(board) && outcome.status === "published") {
+      externalUrl = await feedUrlForBoard(orgId, board);
     }
 
     await upsertPublication(orgId, jobId, board, {

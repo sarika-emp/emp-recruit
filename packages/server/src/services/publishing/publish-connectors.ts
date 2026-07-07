@@ -57,17 +57,9 @@ interface BoardSpec {
   requirements: string;
 }
 
-// Stubbed boards (still credential-gated / not implemented). Indeed is NOT here
-// — it has a real connector below.
+// Stubbed boards (still credential-gated / not implemented). LinkedIn and Indeed
+// are NOT here — they have real feed connectors below.
 const BOARDS: BoardSpec[] = [
-  {
-    key: "linkedin",
-    label: "LinkedIn",
-    mechanism: "xml_feed",
-    requirements:
-      "LinkedIn crawls an XML job feed (free basic listing) or via the Job Posting API " +
-      "with a LinkedIn Talent partner agreement. Not yet connected.",
-  },
   {
     key: "naukri",
     label: "Naukri",
@@ -82,6 +74,35 @@ const BOARDS: BoardSpec[] = [
     requirements: "Requires an Apna enterprise account + employer API access. Not yet connected.",
   },
 ];
+
+// --- LIVE: LinkedIn --- publishes via a public XML feed LinkedIn crawls (free
+// basic listings). Same shape as the Indeed connector; the service attaches the
+// org's LinkedIn feed URL.
+const linkedinConnector: PublishConnector = {
+  key: "linkedin",
+  label: "LinkedIn",
+  mechanism: "xml_feed",
+  requirements:
+    "Live. LinkedIn crawls this org's public XML job feed (free basic listings). " +
+    "Submit the feed URL below to LinkedIn once, then published jobs appear automatically.",
+
+  isConfigured(): boolean {
+    return true;
+  },
+
+  async publish(): Promise<PublishOutcome> {
+    return {
+      status: "published",
+      externalRef: null,
+      externalUrl: null, // set by the service to the feed URL
+      detail: "Added to your LinkedIn XML feed. LinkedIn lists it on its next crawl.",
+    };
+  },
+
+  async unpublish(): Promise<{ ok: boolean; detail: string }> {
+    return { ok: true, detail: "Removed from your LinkedIn feed. LinkedIn delists it on its next crawl." };
+  },
+};
 
 // --- LIVE: Indeed --- publishes by adding the job to a public XML feed Indeed
 // crawls (no paid account / API key for organic listings). "publish" marks the
@@ -161,12 +182,12 @@ function makeStubConnector(spec: BoardSpec): PublishConnector {
   };
 }
 
-// Order for the UI: LinkedIn, Indeed (live), Naukri, Apna.
+// Order for the UI: LinkedIn (live), Indeed (live), Naukri, Apna.
 export const PUBLISH_CONNECTORS: PublishConnector[] = [
-  makeStubConnector(BOARDS[0]), // linkedin
+  linkedinConnector, // LIVE
   indeedConnector, // LIVE
-  makeStubConnector(BOARDS[1]), // naukri
-  makeStubConnector(BOARDS[2]), // apna
+  makeStubConnector(BOARDS[0]), // naukri
+  makeStubConnector(BOARDS[1]), // apna
 ];
 
 export function getPublishConnector(board: string): PublishConnector | undefined {
