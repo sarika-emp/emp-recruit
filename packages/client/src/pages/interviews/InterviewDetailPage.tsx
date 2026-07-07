@@ -73,6 +73,14 @@ const STATUS_COLORS: Record<string, string> = {
   no_show: "bg-red-100 text-red-800",
 };
 
+const PROVIDER_LABELS: Record<string, string> = {
+  jitsi: "Jitsi (in-app)",
+  livekit: "LiveKit (in-app)",
+  google_meet: "Google Meet",
+  teams: "Microsoft Teams",
+  zoom: "Zoom",
+};
+
 const RECOMMENDATION_COLORS: Record<string, string> = {
   strong_yes: "text-green-700 bg-green-50",
   yes: "text-green-600 bg-green-50",
@@ -339,9 +347,16 @@ function MeetingLinkSection({ interview }: { interview: InterviewDetail }) {
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5">
-      <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-        <Video className="h-5 w-5 text-gray-400" /> Meeting Link
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <Video className="h-5 w-5 text-gray-400" /> Meeting
+        </h3>
+        {interview.meeting_provider && (
+          <span className="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-700">
+            {PROVIDER_LABELS[interview.meeting_provider] || interview.meeting_provider}
+          </span>
+        )}
+      </div>
 
       {!interview.meeting_link ? (
         <div className="flex items-center gap-3">
@@ -361,14 +376,33 @@ function MeetingLinkSection({ interview }: { interview: InterviewDetail }) {
       ) : (
         <div className="space-y-3">
           <div className="flex items-center gap-3 flex-wrap">
+            {/* Embedded providers (Jitsi/LiveKit): join inside the app. */}
+            {interview.meeting_embeddable && (
+              <Link
+                to={`/interviews/${interview.id}/room`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 transition-colors"
+              >
+                <Video className="h-4 w-4" />
+                Join Room
+              </Link>
+            )}
             <a
               href={interview.meeting_link}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 transition-colors"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors",
+                interview.meeting_embeddable
+                  ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  : "bg-brand-600 text-white hover:bg-brand-700",
+              )}
             >
-              <Video className="h-4 w-4" />
-              Join Meeting
+              {interview.meeting_embeddable ? (
+                <ExternalLink className="h-4 w-4" />
+              ) : (
+                <Video className="h-4 w-4" />
+              )}
+              {interview.meeting_embeddable ? "Open externally" : "Join Meeting"}
             </a>
             <a
               href={interview.meeting_link}

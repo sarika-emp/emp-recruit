@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { getDB } from "../../db/adapters";
 import { NotFoundError, ConflictError } from "../../utils/errors";
 import type { Candidate, Application } from "@emp-recruit/shared";
+import * as applicationService from "../application/application.service";
 
 // ---------------------------------------------------------------------------
 // Service functions
@@ -55,6 +56,100 @@ export async function createCandidate(
   };
 
   return db.create<Candidate>("candidates", record as any);
+}
+
+export interface BulkImportResult {
+  createdNew: number; // brand-new candidates created and applied to the job
+  linkedExisting: number; // existing candidate (by email) linked to the job
+  skipped: number; // candidate already had an application for this job
+  failed: { row: number; name: string; email: string; reason: string }[];
+}
+
+/**
+ * Import many candidates into one job's pipeline in a single request.
+ *
+ * For each row: find-or-create the candidate by email (dedup per org), then
+ * create an application for the job unless the candidate already applied.
+ * Processing is per-row resilient — a bad row is recorded in `failed` and the
+ * rest continue — so the caller gets one complete report instead of the client
+ * firing N requests and failing partway.
+ */
+export async function bulkImportCandidates(
+  orgId: number,
+  jobId: string,
+  rows: Array<{
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone?: string;
+    source?: string;
+    current_company?: string;
+    current_title?: string;
+    experience_years?: number;
+    skills?: string[];
+  }>,
+): Promise<BulkImportResult> {
+  const db = getDB();
+
+  // Validate the job up-front — fail the whole request if it isn't this org's.
+  const job = await db.findOne<any>("job_postings", { id: jobId, organization_id: orgId });
+  if (!job) throw new NotFoundError("Job", jobId);
+
+  const result: BulkImportResult = { createdNew: 0, linkedExisting: 0, skipped: 0, failed: [] };
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const name = `${row.first_name} ${row.last_name}`.trim();
+    try {
+      let candidate = await db.findOne<Candidate>("candidates", {
+        organization_id: orgId,
+        email: row.email,
+      });
+      let isNew = false;
+      if (!candidate) {
+        candidate = await createCandidate(orgId, {
+          first_name: row.first_name,
+          last_name: row.last_name,
+          email: row.email,
+          phone: row.phone,
+          source: row.source,
+          current_company: row.current_company,
+          current_title: row.current_title,
+          experience_years: row.experience_years,
+          skills: row.skills,
+        });
+        isNew = true;
+      }
+
+      const existingApp = await db.findOne<Application>("applications", {
+        organization_id: orgId,
+        job_id: jobId,
+        candidate_id: candidate.id,
+      });
+      if (existingApp) {
+        result.skipped++;
+        continue;
+      }
+
+      await applicationService.createApplication(orgId, {
+        job_id: jobId,
+        candidate_id: candidate.id,
+        source: row.source ?? "direct",
+      });
+
+      if (isNew) result.createdNew++;
+      else result.linkedExisting++;
+    } catch (err: any) {
+      result.failed.push({
+        row: i + 1,
+        name,
+        email: row.email,
+        reason: err?.message ?? "Unknown error",
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function updateCandidate(

@@ -205,6 +205,12 @@ export interface Interview {
   duration_minutes: number;
   location: string | null;
   meeting_link: string | null;
+  // Multi-provider meeting fields (migration 011). `meeting_link` remains the
+  // participant join URL; these describe which provider produced it.
+  meeting_provider: string | null;
+  meeting_external_id: string | null;
+  meeting_host_url: string | null;
+  meeting_embeddable: boolean;
   status: InterviewStatus;
   notes: string | null;
   created_by: number;

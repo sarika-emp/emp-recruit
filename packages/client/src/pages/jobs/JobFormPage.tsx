@@ -5,6 +5,21 @@ import { ArrowLeft, Save, Loader2 } from "lucide-react";
 import { apiGet, apiPost, apiPut } from "@/api/client";
 import type { JobPosting } from "@emp-recruit/shared";
 import toast from "react-hot-toast";
+import { RichTextEditor } from "@/components/RichTextEditor";
+
+// Strip HTML tags and decode a couple of common entities so we can measure the
+// actual text a rich-text description contains (validation counts characters,
+// not markup).
+function htmlToText(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // Today's date in YYYY-MM-DD for use as <input type="date" min> — #13.
 function todayIso() {
@@ -178,8 +193,9 @@ export function JobFormPage() {
     }
 
     // #14 — description min length is 10 on the server. Fail fast with a
-    // human-readable message instead of surfacing a zod error.
-    if (form.description.trim().length < 10) {
+    // human-readable message instead of surfacing a zod error. The editor
+    // stores HTML, so measure the visible text rather than the markup.
+    if (htmlToText(form.description).length < 10) {
       toast.error("Description must be at least 10 characters");
       return;
     }
@@ -235,7 +251,9 @@ export function JobFormPage() {
     if (form.experience_max) payload.experience_max = Number(form.experience_max);
     if (form.salary_min) payload.salary_min = Number(form.salary_min);
     if (form.salary_max) payload.salary_max = Number(form.salary_max);
-    if (form.requirements) payload.requirements = form.requirements;
+    // Only persist requirements when it has visible text — the rich editor can
+    // leave empty markup (e.g. "<br>") behind after the user clears it.
+    if (htmlToText(form.requirements).length > 0) payload.requirements = form.requirements;
     if (form.benefits) payload.benefits = form.benefits;
     if (form.skills) payload.skills = form.skills.split(",").map((s: string) => s.trim()).filter(Boolean);
     if (form.closes_at) payload.closes_at = new Date(form.closes_at).toISOString();
@@ -305,22 +323,22 @@ export function JobFormPage() {
           {field("Job Title", "title", "text", { required: true, placeholder: "e.g. Senior Software Engineer" })}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="job-description" className="block text-sm font-medium text-gray-700 mb-1">
               Description <span className="text-red-500">*</span>
             </label>
-            <textarea
+            {/* #14 — backend enforces min length 10; handleSubmit measures the
+                editor's visible text so the user gets immediate feedback
+                instead of a confusing 400. */}
+            <RichTextEditor
+              id="job-description"
+              aria-label="Job description"
               value={form.description}
-              onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-              rows={6}
-              required
-              // #14 — backend enforces min length 10. Enforce client-side
-              // so the user gets immediate feedback instead of a confusing
-              // 400 from the server when they submit a 1-line description.
-              minLength={10}
+              onChange={(html) => setForm((p) => ({ ...p, description: html }))}
               placeholder="Describe the role, responsibilities, and what success looks like..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
-            <p className="mt-1 text-xs text-gray-400">Minimum 10 characters.</p>
+            <p className="mt-1 text-xs text-gray-400">
+              Format with the toolbar. Minimum 10 characters.
+            </p>
           </div>
 
           {/* #12 — Department & Location. Dropdowns when the org has
@@ -455,13 +473,15 @@ export function JobFormPage() {
           <h2 className="text-lg font-semibold text-gray-900">Requirements & Details</h2>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Requirements</label>
-            <textarea
+            <label htmlFor="job-requirements" className="block text-sm font-medium text-gray-700 mb-1">
+              Requirements
+            </label>
+            <RichTextEditor
+              id="job-requirements"
+              aria-label="Job requirements"
               value={form.requirements}
-              onChange={(e) => setForm((p) => ({ ...p, requirements: e.target.value }))}
-              rows={4}
+              onChange={(html) => setForm((p) => ({ ...p, requirements: html }))}
               placeholder="List the key requirements for this role..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
           </div>
 

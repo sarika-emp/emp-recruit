@@ -117,6 +117,25 @@ export const createCandidateSchema = z.object({
 
 export const updateCandidateSchema = createCandidateSchema.partial();
 
+// Bulk import: one CSV row (a subset of createCandidate — no notes/tags/urls).
+export const bulkImportCandidateRowSchema = z.object({
+  first_name: z.string().min(1).max(64),
+  last_name: z.string().min(1).max(64),
+  email: z.string().email().max(128),
+  phone: z.string().max(20).optional(),
+  source: z.nativeEnum(CandidateSource).optional(),
+  current_company: z.string().max(200).optional(),
+  current_title: z.string().max(200).optional(),
+  experience_years: z.number().min(0).max(50).optional(),
+  skills: z.array(z.string()).optional(),
+});
+
+// Bulk import candidates into a job's pipeline in a single request.
+export const bulkImportCandidatesSchema = z.object({
+  job_id: z.string().uuid(),
+  candidates: z.array(bulkImportCandidateRowSchema).min(1).max(500),
+});
+
 // ---------------------------------------------------------------------------
 // Applications
 // ---------------------------------------------------------------------------

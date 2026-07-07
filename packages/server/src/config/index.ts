@@ -64,4 +64,81 @@ export const config = {
       process.env.PUBLIC_API_BASE_URL || `http://localhost:${parseInt(process.env.PORT || "4500")}`,
     siteBaseUrl: process.env.PUBLIC_SITE_BASE_URL || process.env.CORS_ORIGIN || "http://localhost:5179",
   },
+
+  // AI — pluggable LLM (candidate evaluation, resume scoring) + speech-to-text.
+  // `provider` selects the LLM adapter; leave keys unset to run in heuristic /
+  // placeholder mode. "openai" also drives any OpenAI-compatible endpoint via
+  // OPENAI_BASE_URL (Together, Groq, OpenRouter, local, …).
+  ai: {
+    provider:
+      process.env.AI_PROVIDER ||
+      (process.env.ANTHROPIC_API_KEY
+        ? "anthropic"
+        : process.env.OPENAI_API_KEY
+          ? "openai"
+          : "none"),
+    anthropic: {
+      apiKey: process.env.ANTHROPIC_API_KEY || "",
+      model: process.env.ANTHROPIC_MODEL || "claude-opus-4-8",
+    },
+    openai: {
+      apiKey: process.env.OPENAI_API_KEY || "",
+      model: process.env.OPENAI_MODEL || "gpt-4o",
+      baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    },
+    // Speech-to-text for interview recordings.
+    transcription: {
+      provider:
+        process.env.STT_PROVIDER || (process.env.DEEPGRAM_API_KEY ? "deepgram" : "none"),
+      deepgram: {
+        apiKey: process.env.DEEPGRAM_API_KEY || "",
+        model: process.env.DEEPGRAM_MODEL || "nova-2",
+      },
+    },
+  },
+
+  // Public client URL — used to build join links for embedded interview rooms
+  // (the <InterviewRoom> page lives in the client app, not this server).
+  clientUrl: process.env.CLIENT_URL || "http://localhost:5179",
+
+  // Public URL of THIS server — used as the OAuth redirect base for the
+  // meeting-provider connect flow (Google/Teams callbacks land here).
+  publicUrl: process.env.SERVER_PUBLIC_URL || "http://localhost:4500",
+
+  // Interview meeting providers. `defaultProvider` is the fallback when an org
+  // has no meeting_provider_configs row. Jitsi works with zero config (public
+  // rooms); set JAAS_* to switch to authenticated, recordable JaaS rooms.
+  // Google/Teams/Zoom credentials here are app-level defaults; per-org OAuth
+  // (Phase 2) overrides them.
+  meeting: {
+    defaultProvider: process.env.MEETING_DEFAULT_PROVIDER || "jitsi",
+    jitsi: {
+      // 'public' (meet.jit.si, no auth) | 'jaas' (8x8.vc, JWT-gated + recording)
+      mode: process.env.JITSI_MODE || (process.env.JAAS_APP_ID ? "jaas" : "public"),
+      domain: process.env.JITSI_DOMAIN || "meet.jit.si",
+      roomPrefix: process.env.JITSI_ROOM_PREFIX || "emprecruit",
+      jaas: {
+        appId: process.env.JAAS_APP_ID || "",
+        // JaaS API key id (the `kid` header). Format: <appId>/<keyid>
+        keyId: process.env.JAAS_KEY_ID || "",
+        // PEM private key; supports \n-escaped single-line env values
+        privateKey: (process.env.JAAS_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+        domain: process.env.JAAS_DOMAIN || "8x8.vc",
+      },
+    },
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+    },
+    teams: {
+      clientId: process.env.MS_CLIENT_ID || "",
+      clientSecret: process.env.MS_CLIENT_SECRET || "",
+      tenantId: process.env.MS_TENANT_ID || "",
+    },
+    zoom: {
+      accountId: process.env.ZOOM_ACCOUNT_ID || "",
+      clientId: process.env.ZOOM_CLIENT_ID || "",
+      clientSecret: process.env.ZOOM_CLIENT_SECRET || "",
+    },
+  },
 } as const;

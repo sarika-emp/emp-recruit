@@ -5,6 +5,7 @@ import { ValidationError } from "../../utils/errors";
 import {
   createCandidateSchema,
   updateCandidateSchema,
+  bulkImportCandidatesSchema,
   idParamSchema,
   paginationSchema,
 } from "@emp-recruit/shared";
@@ -47,6 +48,22 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   } catch (err: any) {
     if (err.name === "ZodError") {
       return next(new ValidationError("Invalid candidate data", err.flatten().fieldErrors));
+    }
+    next(err);
+  }
+});
+
+// POST /bulk — import many candidates into a job's pipeline in one request
+router.post("/bulk", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { job_id, candidates } = bulkImportCandidatesSchema.parse(req.body);
+    const orgId = req.user!.empcloudOrgId;
+
+    const result = await candidateService.bulkImportCandidates(orgId, job_id, candidates);
+    return sendSuccess(res, result, 201);
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return next(new ValidationError("Invalid bulk import data", err.flatten().fieldErrors));
     }
     next(err);
   }

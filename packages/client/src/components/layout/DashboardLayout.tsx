@@ -20,9 +20,7 @@ import { isLoggedIn, getUser, useAuthStore } from "@/lib/auth-store";
 import { cn, getInitials } from "@/lib/utils";
 import { BackToDashboard } from "@/components/BackToDashboard";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-
-type Role = "super_admin" | "org_admin" | "hr_admin" | "hr_manager" | "employee";
-const ADMIN_ROLES: Role[] = ["super_admin", "org_admin", "hr_admin", "hr_manager"];
+import { isAdminRole } from "@/lib/roles";
 
 interface NavItem {
   to: string;
@@ -50,16 +48,17 @@ export function DashboardLayout() {
   const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
 
-  if (!isLoggedIn()) return <Navigate to="/login" replace />;
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+  // Close the mobile drawer on navigation. Must run before any early return so
+  // hooks are called unconditionally on every render (rules of hooks).
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
 
+  if (!isLoggedIn()) return <Navigate to="/login" replace />;
+
   const user = getUser();
   const displayName = user ? `${user.firstName} ${user.lastName}` : "User";
-  const roleLabel = ADMIN_ROLES.includes((user?.role || "employee") as Role) ? "Admin" : "Employee";
+  const roleLabel = isAdminRole(user?.role) ? "Admin" : "Employee";
 
   function SidebarContent() {
     return (
@@ -75,7 +74,7 @@ export function DashboardLayout() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {NAV_ITEMS.filter((item) => {
-            if (item.adminOnly && !ADMIN_ROLES.includes((user?.role || "employee") as Role)) return false;
+            if (item.adminOnly && !isAdminRole(user?.role)) return false;
             return true;
           }).map((item) => (
             <NavLink

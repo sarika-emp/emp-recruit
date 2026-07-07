@@ -7,3 +7,41 @@
     @apply bg-gray-50 text-gray-900 font-sans;
   }
 }
+
+/* Rich-text content — shared by the RichTextEditor's editable area and any
+   place a stored HTML description/requirements is rendered. Tailwind's
+   preflight strips list markers and heading sizes, so restore them here. */
+@layer components {
+  .rte-content {
+    @apply leading-relaxed;
+  }
+  .rte-content p {
+    @apply my-2;
+  }
+  .rte-content ul {
+    @apply my-2 list-disc pl-6;
+  }
+  .rte-content ol {
+    @apply my-2 list-decimal pl-6;
+  }
+  .rte-content li {
+    @apply my-1;
+  }
+  .rte-content h2 {
+    @apply mb-1 mt-3 text-lg font-semibold;
+  }
+  .rte-content h3 {
+    @apply mb-1 mt-3 text-base font-semibold;
+  }
+  .rte-content a {
+    @apply text-brand-600 underline;
+  }
+  .rte-content strong,
+  .rte-content b {
+    @apply font-semibold;
+  }
+  .rte-content:first-child,
+  .rte-content > :first-child {
+    @apply mt-0;
+  }
+}

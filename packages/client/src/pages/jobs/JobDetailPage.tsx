@@ -23,11 +23,13 @@ import {
   Send,
   CheckCircle2,
   Lock,
+  Upload,
 } from "lucide-react";
 import { apiGet, apiPatch, apiPost, apiDelete } from "@/api/client";
 import type { JobPosting, PaginatedResponse, ApplicationStage, CandidateScore } from "@emp-recruit/shared";
 import { cn, formatDate } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { BulkUploadModal } from "@/components/BulkUploadModal";
 import toast from "react-hot-toast";
 
 interface PipelineStage {
@@ -141,6 +143,7 @@ export function JobDetailPage() {
   const [compareSelection, setCompareSelection] = useState<Set<string>>(new Set());
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   // Fetch custom pipeline stages
   const { data: stagesData } = useQuery({
@@ -424,12 +427,18 @@ export function JobDetailPage() {
       <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
         <div>
           <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Description</h2>
-          <p className="mt-2 text-gray-700 whitespace-pre-line">{job.description}</p>
+          <div
+            className="rte-content mt-2 text-gray-700"
+            dangerouslySetInnerHTML={{ __html: job.description || "" }}
+          />
         </div>
         {job.requirements && (
           <div>
             <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Requirements</h2>
-            <p className="mt-2 text-gray-700 whitespace-pre-line">{job.requirements}</p>
+            <div
+              className="rte-content mt-2 text-gray-700"
+              dangerouslySetInnerHTML={{ __html: job.requirements || "" }}
+            />
           </div>
         )}
         {skills.length > 0 && (
@@ -480,6 +489,13 @@ export function JobDetailPage() {
               <Users className="h-4 w-4" />
               Add Candidate
             </Link>
+            <button
+              onClick={() => setShowBulkUpload(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50"
+            >
+              <Upload className="h-4 w-4" />
+              Bulk Upload
+            </button>
             {applications.length > 0 && compareSelection.size >= 2 && (
               <Link
                 to={`/candidates/compare?ids=${Array.from(compareSelection).join(",")}`}
@@ -798,6 +814,18 @@ export function JobDetailPage() {
         onConfirm={() => deleteMutation.mutate()}
         onCancel={() => setShowDeleteConfirm(false)}
       />
+
+      {id && (
+        <BulkUploadModal
+          jobId={id}
+          open={showBulkUpload}
+          onClose={() => setShowBulkUpload(false)}
+          onImported={() => {
+            queryClient.invalidateQueries({ queryKey: ["job-applications", id] });
+            queryClient.invalidateQueries({ queryKey: ["candidates"] });
+          }}
+        />
+      )}
     </div>
   );
 }

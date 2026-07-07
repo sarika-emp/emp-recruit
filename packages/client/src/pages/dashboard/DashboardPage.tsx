@@ -8,10 +8,20 @@ import {
   ChevronRight,
   Calendar,
   ArrowUpRight,
+  Gift,
+  CheckCircle2,
+  Clock,
+  Award,
 } from "lucide-react";
 import { apiGet } from "@/api/client";
+import { getUser } from "@/lib/auth-store";
 import type { JobPosting, Candidate, PaginatedResponse } from "@emp-recruit/shared";
 import { cn, formatDate } from "@/lib/utils";
+
+// Staff roles that get the recruiting overview. A plain `employee` cannot hit
+// the admin APIs (jobs/candidates/applications all 403), so they get a
+// referral-focused dashboard instead of admin stat tiles that always read 0.
+const ADMIN_ROLES = ["super_admin", "org_admin", "hr_admin", "hr_manager"];
 
 const STAGE_LABELS: Record<string, { label: string; color: string }> = {
   applied: { label: "Applied", color: "from-blue-400 to-blue-500" },
@@ -32,15 +42,15 @@ const STAGE_BADGE: Record<string, string> = {
   withdrawn: "bg-gray-100 text-gray-700",
 };
 
-interface DashboardStats {
-  openJobsCount: number;
-  totalCandidates: number;
-  totalApplications: number;
-  stageDistribution: Record<string, number>;
-  recentApplications: any[];
+export function DashboardPage() {
+  const role = (getUser()?.role as string) || "employee";
+  return ADMIN_ROLES.includes(role) ? <AdminDashboard /> : <EmployeeDashboard />;
 }
 
-export function DashboardPage() {
+// ---------------------------------------------------------------------------
+// Admin / HR dashboard — recruiting overview
+// ---------------------------------------------------------------------------
+function AdminDashboard() {
   // Fetch open jobs count
   const { data: jobsData } = useQuery({
     queryKey: ["dashboard-jobs"],
@@ -260,6 +270,170 @@ export function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Employee dashboard — referral-focused, no admin APIs
+// ---------------------------------------------------------------------------
+interface ReferralRow {
+  id: string;
+  status: string;
+  candidate_name: string;
+  job_title: string;
+  created_at: string;
+  bonus_amount: number | null;
+}
+
+const REF_STATUS_BADGE: Record<string, string> = {
+  submitted: "bg-blue-100 text-blue-700",
+  under_review: "bg-yellow-100 text-yellow-700",
+  hired: "bg-green-100 text-green-700",
+  rejected: "bg-red-100 text-red-700",
+  bonus_eligible: "bg-purple-100 text-purple-700",
+  bonus_paid: "bg-emerald-100 text-emerald-700",
+};
+
+function EmployeeDashboard() {
+  const user = getUser();
+  const firstName = user?.firstName || "there";
+
+  const { data: refData, isLoading } = useQuery({
+    queryKey: ["my-referrals"],
+    queryFn: async () => {
+      const res = await apiGet<any>("/referrals");
+      return res.data;
+    },
+  });
+
+  const referrals: ReferralRow[] = refData?.data ?? [];
+  const total = referrals.length;
+  const inReview = referrals.filter((r) => ["submitted", "under_review"].includes(r.status)).length;
+  const hired = referrals.filter((r) => r.status === "hired").length;
+  const rewarded = referrals.filter((r) => ["bonus_eligible", "bonus_paid"].includes(r.status)).length;
+
+  const stats = [
+    { label: "My Referrals", value: total, icon: Gift, color: "bg-brand-50 text-brand-600" },
+    { label: "In Review", value: inReview, icon: Clock, color: "bg-yellow-50 text-yellow-600" },
+    { label: "Hired", value: hired, icon: CheckCircle2, color: "bg-green-50 text-green-600" },
+    { label: "Bonus", value: rewarded, icon: Award, color: "bg-purple-50 text-purple-600" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Welcome, {firstName}</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Browse internal openings and refer great people to your team.
+        </p>
+      </div>
+
+      {/* Referral stat cards */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+          >
+            <div className={cn("inline-flex rounded-xl p-3", stat.color)}>
+              <stat.icon className="h-5 w-5" />
+            </div>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-gray-900">{stat.value}</p>
+            <p className="mt-0.5 text-sm font-medium text-gray-500">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Quick actions */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Link
+          to="/internal-jobs"
+          className="group flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
+        >
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-brand-50 p-3 text-brand-600">
+              <Briefcase className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Browse Internal Jobs</p>
+              <p className="text-xs text-gray-500">See openings for employees</p>
+            </div>
+          </div>
+          <ArrowUpRight className="h-4 w-4 text-gray-300 transition-colors group-hover:text-brand-500" />
+        </Link>
+        <Link
+          to="/referrals"
+          className="group flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
+        >
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-purple-50 p-3 text-purple-600">
+              <Gift className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Refer Someone</p>
+              <p className="text-xs text-gray-500">Recommend a candidate</p>
+            </div>
+          </div>
+          <ArrowUpRight className="h-4 w-4 text-gray-300 transition-colors group-hover:text-brand-500" />
+        </Link>
+      </div>
+
+      {/* My recent referrals */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">My Referrals</h2>
+          <Link
+            to="/referrals"
+            className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700"
+          >
+            View all <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        {isLoading ? (
+          <p className="py-8 text-center text-sm text-gray-400">Loading…</p>
+        ) : referrals.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <Gift className="h-10 w-10 text-gray-300" />
+            <p className="mt-3 text-sm text-gray-500">
+              You haven't referred anyone yet.{" "}
+              <Link to="/referrals" className="font-medium text-brand-600 hover:text-brand-700">
+                Refer someone
+              </Link>
+              .
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {referrals.slice(0, 5).map((ref) => (
+              <div
+                key={ref.id}
+                className="flex items-center justify-between rounded-lg border border-gray-100 p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900">{ref.candidate_name}</p>
+                  <p className="truncate text-xs text-gray-500">{ref.job_title}</p>
+                </div>
+                <div className="ml-4 flex items-center gap-3">
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize",
+                      REF_STATUS_BADGE[ref.status] ?? "bg-gray-100 text-gray-700",
+                    )}
+                  >
+                    {ref.status.replace(/_/g, " ")}
+                  </span>
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-gray-400">
+                    <Calendar className="h-3 w-3" />
+                    {formatDate(ref.created_at)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

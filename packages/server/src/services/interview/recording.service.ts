@@ -9,6 +9,10 @@ import path from "path";
 import { getDB } from "../../db/adapters";
 import { NotFoundError } from "../../utils/errors";
 import { logger } from "../../utils/logger";
+import {
+  transcribeFile,
+  isTranscriptionEnabled,
+} from "../ai/transcription/deepgram.service";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -182,10 +186,30 @@ export async function generateTranscript(
     throw new NotFoundError("Recording", recordingId);
   }
 
-  // TODO: In production, use OpenAI Whisper API or Google Speech-to-Text
-  // to transcribe the recording file at recording.file_path.
-  // For MVP, we generate a realistic placeholder transcript with timestamps.
-  const placeholderTranscript = generatePlaceholderTranscript();
+  // Real speech-to-text via Deepgram when configured; otherwise fall back to a
+  // placeholder so the flow still works without an STT key.
+  let content: string;
+  let status: InterviewTranscript["status"] = "completed";
+
+  if (isTranscriptionEnabled()) {
+    try {
+      const filePath = path.resolve(recording.file_path);
+      const result = await transcribeFile(filePath, recording.mime_type);
+      content = result.text || "(no speech detected)";
+      // Backfill the media duration we now know from the transcription.
+      if (result.durationSeconds != null && recording.duration_seconds == null) {
+        await db.update("interview_recordings", recordingId, {
+          duration_seconds: result.durationSeconds,
+        });
+      }
+    } catch (err) {
+      logger.error(`Transcription failed for recording ${recordingId}:`, err);
+      content = "Transcription failed. Please retry.";
+      status = "failed";
+    }
+  } else {
+    content = generatePlaceholderTranscript();
+  }
 
   const now = new Date();
   const transcriptId = uuidv4();
@@ -195,9 +219,9 @@ export async function generateTranscript(
     organization_id: orgId,
     interview_id: interviewId,
     recording_id: recordingId,
-    content: placeholderTranscript,
+    content,
     summary: null,
-    status: "completed",
+    status,
     generated_at: now,
     created_at: now,
     updated_at: now,

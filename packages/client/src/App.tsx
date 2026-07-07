@@ -10,6 +10,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { PortalLayout } from "@/components/layout/PortalLayout";
+import { RequireRole } from "@/components/RequireRole";
+import { ADMIN_ROLES } from "@/lib/roles";
 
 // Route config imports
 import { jobRoutes } from "./routes/jobs.routes";
@@ -126,29 +128,33 @@ export default function App() {
 
         {/* Protected routes inside DashboardLayout */}
         <Route element={<DashboardLayout />}>
+          {/* Available to every signed-in user, including employees */}
           <Route path="/dashboard" element={<DashboardPage />} />
-
-          {jobRoutes}
-          {candidateRoutes}
-          {interviewRoutes}
-          {offerRoutes}
-          {onboardingRoutes}
-
-          {/* Scoring / AI Resume */}
-          <Route path="/scoring" element={<ScoringPage />} />
-          <Route path="/scoring/:appId" element={<ScoreReportPage />} />
-
           {/* Internal Job Board (employee self-service) */}
           <Route path="/internal-jobs" element={<InternalJobsPage />} />
-
           {/* Referrals */}
           <Route path="/referrals" element={<ReferralListPage />} />
 
-          {/* Analytics */}
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          {/* Staff-only workspace — employees are redirected to /dashboard.
+              Mirrors the server's authorize() role checks so admin pages can't
+              be reached by URL. */}
+          <Route element={<RequireRole roles={ADMIN_ROLES} />}>
+            {jobRoutes}
+            {candidateRoutes}
+            {interviewRoutes}
+            {offerRoutes}
+            {onboardingRoutes}
 
-          {/* Settings */}
-          <Route path="/settings" element={<SettingsPage />} />
+            {/* Scoring / AI Resume */}
+            <Route path="/scoring" element={<ScoringPage />} />
+            <Route path="/scoring/:appId" element={<ScoreReportPage />} />
+
+            {/* Analytics */}
+            <Route path="/analytics" element={<AnalyticsPage />} />
+
+            {/* Settings */}
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
         </Route>
 
         {/* Candidate Portal (no employee auth — uses portal tokens) */}

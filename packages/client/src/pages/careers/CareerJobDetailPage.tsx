@@ -116,7 +116,7 @@ export function CareerJobDetailPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Job Description</h2>
             <div
-              className="prose prose-sm max-w-none text-gray-700"
+              className="rte-content prose prose-sm max-w-none text-gray-700"
               dangerouslySetInnerHTML={{ __html: job.description }}
             />
           </div>
@@ -126,7 +126,7 @@ export function CareerJobDetailPage() {
             <div className="rounded-xl border border-gray-200 bg-white p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-3">Requirements</h2>
               <div
-                className="prose prose-sm max-w-none text-gray-700"
+                className="rte-content prose prose-sm max-w-none text-gray-700"
                 dangerouslySetInnerHTML={{ __html: job.requirements }}
               />
             </div>

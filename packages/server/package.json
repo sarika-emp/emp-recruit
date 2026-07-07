@@ -14,6 +14,7 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.68.0",
     "@emp-recruit/shared": "workspace:*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.30.0",

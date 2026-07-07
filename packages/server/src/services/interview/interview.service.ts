@@ -18,9 +18,21 @@ import type {
   Recommendation,
 } from "@emp-recruit/shared";
 
+import { findUserById } from "../../db/empcloud";
+import { resolveProvider } from "./providers";
+import { getDefaultProviderKey } from "./meeting-config.service";
+import type {
+  CreatedMeeting,
+  MeetingContext,
+  MeetingProviderKey,
+  RoomToken,
+} from "./providers/types";
+
 // Re-export calendar and invitation functions so existing `import *` still works
 export { getCalendarLinks, generateICSFile } from "./calendar.service";
 export { sendInterviewInvitation } from "./invitation.service";
+// Re-export meeting-config functions for the routes' `import * as interviewService`
+export { getMeetingConfig, setMeetingConfig } from "./meeting-config.service";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -572,16 +584,91 @@ export async function getAggregatedFeedback(
 }
 
 // ---------------------------------------------------------------------------
-// Generate a meeting link (Jitsi Meet — free, no API key required)
+// Meetings — provisioned through the pluggable adapters in ./providers
 // ---------------------------------------------------------------------------
 
-export async function generateMeetingLink(
+/**
+ * Assemble organizer + candidate + panelists for an interview's meeting.
+ * Best-effort: a missing/unresolvable user never blocks meeting creation.
+ */
+async function buildMeetingContext(orgId: number, interview: Interview): Promise<MeetingContext> {
+  const db = getDB();
+  const participants: MeetingContext["participants"] = [];
+
+  // Candidate (via the application)
+  try {
+    const app = await db.findById<{ candidate_id: string }>("applications", interview.application_id);
+    if (app?.candidate_id) {
+      const cand = await db.findById<{ first_name?: string; last_name?: string; email?: string }>(
+        "candidates",
+        app.candidate_id,
+      );
+      const name = `${cand?.first_name ?? ""} ${cand?.last_name ?? ""}`.trim();
+      if (cand?.email) {
+        participants.push({ name: name || "Candidate", email: cand.email, role: "candidate" });
+      }
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  // Panelists (internal users)
+  try {
+    const rows = await db.findMany<{ user_id: number }>("interview_panelists", {
+      filters: { interview_id: interview.id },
+      limit: 50,
+    });
+    for (const p of rows.data) {
+      const u = await findUserById(p.user_id).catch(() => null);
+      if (u?.email) {
+        participants.push({
+          userId: u.id,
+          name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || u.email,
+          email: u.email,
+          role: "panelist",
+        });
+      }
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  // Organizer (interview creator)
+  let organizer = { userId: interview.created_by, name: "Interviewer", email: "" };
+  try {
+    const u = await findUserById(interview.created_by);
+    if (u) {
+      organizer = {
+        userId: u.id,
+        name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || u.email,
+        email: u.email ?? "",
+      };
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  return {
+    orgId,
+    interviewId: interview.id,
+    title: interview.title,
+    scheduledAt: new Date(interview.scheduled_at),
+    durationMinutes: interview.duration_minutes ?? 60,
+    organizer,
+    participants,
+  };
+}
+
+/**
+ * Provision (or re-provision) the meeting for an interview via the resolved
+ * provider and persist the result onto the interview row.
+ */
+export async function createMeeting(
   orgId: number,
   interviewId: string,
-  provider: "jitsi" | "google" = "jitsi",
-): Promise<string> {
+  providerKey?: MeetingProviderKey | string,
+): Promise<CreatedMeeting> {
   const db = getDB();
-
   const interview = await db.findOne<Interview>("interviews", {
     id: interviewId,
     organization_id: orgId,
@@ -590,21 +677,68 @@ export async function generateMeetingLink(
     throw new NotFoundError("Interview", interviewId);
   }
 
-  // Jitsi Meet links work immediately — no login required, free, open-source.
-  // Google Meet would require OAuth2 with Google Calendar API — future TODO.
-  const shortId = interviewId.split("-")[0];
-  const meetingLink =
-    provider === "google"
-      ? `https://meet.jit.si/emp-recruit-${shortId}` // Jitsi fallback until Google OAuth is set up
-      : `https://meet.jit.si/emp-recruit-${shortId}`;
+  const key = providerKey ?? (await getDefaultProviderKey(orgId));
+  const provider = resolveProvider(key as string);
+
+  const ctx = await buildMeetingContext(orgId, interview);
+  const meeting = await provider.createMeeting(ctx);
 
   await db.update<Interview>("interviews", interviewId, {
-    meeting_link: meetingLink,
-    updated_at: new Date().toISOString(),
+    meeting_provider: meeting.provider,
+    meeting_link: meeting.joinUrl,
+    meeting_external_id: meeting.externalId,
+    meeting_host_url: meeting.hostUrl ?? null,
+    meeting_embeddable: meeting.embeddable,
+  } as Partial<Interview>);
+
+  logger.info(
+    `Meeting created for interview ${interviewId} via ${meeting.provider}: ${meeting.joinUrl}`,
+  );
+  return meeting;
+}
+
+/**
+ * Backward-compatible wrapper returning just the join URL. Existing callers
+ * (POST /:id/generate-meet and its tests) keep working unchanged.
+ */
+export async function generateMeetingLink(
+  orgId: number,
+  interviewId: string,
+  providerKey?: MeetingProviderKey | string,
+): Promise<string> {
+  const meeting = await createMeeting(orgId, interviewId, providerKey);
+  return meeting.joinUrl;
+}
+
+/**
+ * Mint short-lived join credentials for an embedded room. The <InterviewRoom>
+ * client page consumes these. Throws if the provider isn't embeddable.
+ */
+export async function getInterviewRoomToken(
+  orgId: number,
+  interviewId: string,
+  participant: { userId?: number; name: string; email: string; moderator: boolean },
+): Promise<RoomToken & { provider: string }> {
+  const db = getDB();
+  const interview = await db.findOne<Interview>("interviews", {
+    id: interviewId,
+    organization_id: orgId,
   });
+  if (!interview) {
+    throw new NotFoundError("Interview", interviewId);
+  }
 
-  logger.info(`Meeting link generated for interview ${interviewId}: ${meetingLink}`);
+  const provider = resolveProvider(interview.meeting_provider ?? undefined);
+  if (!provider.embeddable || !provider.issueRoomToken) {
+    throw new ValidationError("This interview does not use an embedded meeting room");
+  }
 
-  return meetingLink;
+  const token = await provider.issueRoomToken({
+    orgId,
+    interviewId,
+    roomName: interview.meeting_external_id ?? "",
+    participant,
+  });
+  return { ...token, provider: provider.key };
 }
 

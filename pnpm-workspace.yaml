@@ -1,2 +1,10 @@
 packages:
   - "packages/*"
+
+# Allow these dependencies to run their install/build scripts.
+# esbuild ships a native binary that tsx (server) and vite (client) require;
+# without its postinstall neither app can start.
+onlyBuiltDependencies:
+  - esbuild
+  - "@scarf/scarf"
+  - msgpackr-extract
