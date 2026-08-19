@@ -38,7 +38,7 @@ export function RecruitmentOperationsPage() {
   const [emailTemplates, setEmailTemplates] = useState<Template[]>([]);
   const [busy, setBusy] = useState("");
   const [resumeFiles, setResumeFiles] = useState<FileList | null>(null);
-  const [resumeJob, setResumeJob] = useState("");
+  const [resumeJobs, setResumeJobs] = useState<string[]>([]);
   const [resumeResult, setResumeResult] = useState<ResumeResult | null>(null);
   const emptyRule = { name: "", trigger_value: "rejected", action_type: "send_email", subject: "Application update", body: "Dear {{candidate.first_name}}, your application status has changed.", template_id: "", delay_minutes: 0, schedule_after_minutes: 1440, duration_minutes: 60, is_active: true };
   const [rule, setRule] = useState(emptyRule);
@@ -59,7 +59,7 @@ export function RecruitmentOperationsPage() {
     const requestLabels = ["automations", "automation history", "team performance", "email campaigns", "jobs", "candidates", "team members", "assessment templates", "email templates"];
     const results = await Promise.allSettled([
       apiGet<Rule[]>("/recruitment-ops/automations"), apiGet<Run[]>("/recruitment-ops/automation-runs"),
-      apiGet<Performance[]>("/recruitment-ops/recruiter-performance", { from: performanceRange.from || undefined, to: performanceRange.to || undefined }), apiGet<Campaign[]>("/recruitment-ops/email-campaigns"),
+      apiGet<Performance[]>("/recruitment-ops/recruiter-performance", { from: performanceRange.from || undefined, to: performanceRange.to || undefined, _: Date.now() }), apiGet<Campaign[]>("/recruitment-ops/email-campaigns"),
       fetchAllRows<Job>("/jobs", {}, { maxRows: 10000 }), fetchAllRows<Candidate>("/candidates", {}, { maxRows: 10000 }),
       apiGet<User[]>("/organizations/users"), apiGet<any>("/assessments/templates"), apiGet<Template[]>("/email-templates"),
     ]);
@@ -79,6 +79,10 @@ export function RecruitmentOperationsPage() {
     if (!query) return candidates;
     return candidates.filter((candidate) => candidateLabel(candidate).toLowerCase().includes(query));
   }, [candidates, recipientSearch]);
+  // Compatibility for the legacy single-destination control; the primary
+  // control below supports selecting multiple application roles.
+  const resumeJob = resumeJobs[0] || "";
+  const setResumeJob = (jobId: string) => setResumeJobs(jobId ? [jobId] : []);
 
   async function act(key: string, action: () => Promise<void>, failure: string) {
     setBusy(key);
@@ -89,14 +93,20 @@ export function RecruitmentOperationsPage() {
     if (!resumeFiles?.length) return toast.error("Select at least one PDF or DOCX resume");
     await act("resumes", async () => {
       const data = new FormData(); Array.from(resumeFiles).forEach((file) => data.append("resumes", file));
-      if (resumeJob) data.append("job_id", resumeJob);
+      if (resumeJobs.length) data.append("job_ids", JSON.stringify(resumeJobs));
       const response = await api.post("/candidates/bulk-resumes", data, { headers: { "Content-Type": "multipart/form-data" } });
       setResumeResult(response.data.data); toast.success("Resume batch processed. Review the file-by-file results below.");
     }, "Resume upload failed");
   }
 
   const rulePayload = () => ({ name: rule.name, trigger: "application_stage_changed", trigger_value: rule.trigger_value, action_type: rule.action_type, delay_minutes: Number(rule.delay_minutes), is_active: rule.is_active, action_config: rule.action_type === "send_email" ? { subject: rule.subject, body: rule.body } : rule.action_type === "assign_assessment" ? { template_id: rule.template_id } : rule.action_type === "schedule_interview" ? { title: rule.subject, notes: rule.body, schedule_after_minutes: Number(rule.schedule_after_minutes), duration_minutes: Number(rule.duration_minutes), type: "video", round: 1 } : { title: rule.subject, description: rule.body } });
-  async function saveRule() { await act("rule", async () => { editingRule ? await apiPut(`/recruitment-ops/automations/${editingRule}`, rulePayload()) : await apiPost("/recruitment-ops/automations", rulePayload()); toast.success(editingRule ? "Automation updated" : "Automation created"); setRule(emptyRule); setEditingRule(null); await reload(); }, "Could not save automation"); }
+  async function saveRule() {
+    if (!rule.name.trim()) return toast.error("Rule name is required");
+    if (rule.action_type === "assign_assessment" && !rule.template_id) return toast.error("Assessment template is required");
+    if (["send_email", "create_task"].includes(rule.action_type) && !rule.subject.trim()) return toast.error(rule.action_type === "send_email" ? "Subject is required" : "Task title is required");
+    if (["send_email", "create_task"].includes(rule.action_type) && !rule.body.trim()) return toast.error("Description is required");
+    await act("rule", async () => { editingRule ? await apiPut(`/recruitment-ops/automations/${editingRule}`, rulePayload()) : await apiPost("/recruitment-ops/automations", rulePayload()); toast.success(editingRule ? "Automation updated" : "Automation created"); setRule(emptyRule); setEditingRule(null); await reload(); }, "Could not save automation");
+  }
   async function saveInterviewRule() { await act("interview-rule", async () => { const payload = { name: interviewRule.name, trigger: "application_stage_changed", trigger_value: interviewRule.trigger_value, action_type: "schedule_interview", delay_minutes: 0, is_active: true, action_config: { title: interviewRule.title, type: "video", round: 1, schedule_after_minutes: Number(interviewRule.schedule_after_hours) * 60, duration_minutes: Number(interviewRule.duration_minutes) } }; editingInterviewRule ? await apiPut(`/recruitment-ops/automations/${editingInterviewRule}`, payload) : await apiPost("/recruitment-ops/automations", payload); toast.success(editingInterviewRule ? "Interview automation updated" : "Interview invitation automation created"); setInterviewRule({ name: "", trigger_value: "interview", title: "Candidate interview", schedule_after_hours: 24, duration_minutes: 60 }); setEditingInterviewRule(null); await reload(); }, "Could not save interview automation"); }
   function editInterviewAutomation(value: Rule) { const config = value.action_config || {}; setEditingInterviewRule(value.id); setInterviewRule({ name: value.name, trigger_value: value.trigger_value || "interview", title: String(config.title || "Candidate interview"), schedule_after_hours: Number(config.schedule_after_minutes ?? 1440) / 60, duration_minutes: Number(config.duration_minutes ?? 60) }); }
   async function removeRule(id: string) { await act(`rule-${id}`, async () => { await apiDelete(`/recruitment-ops/automations/${id}`); toast.success("Automation archived"); setDeleteRuleId(null); await reload(); }, "Could not archive automation"); }
@@ -108,7 +118,8 @@ export function RecruitmentOperationsPage() {
 
   async function createCampaign() { if (!campaign.candidate_ids.length) return toast.error("Select at least one recipient"); await act("campaign", async () => { const payload = { ...campaign, template_id: campaign.template_id || undefined, scheduled_for: campaign.scheduled_for ? new Date(campaign.scheduled_for).toISOString() : undefined }; const created = await apiPost<any>("/recruitment-ops/email-campaigns", payload); if (!campaign.scheduled_for) await apiPost(`/recruitment-ops/email-campaigns/${created.data.id}/send`); toast.success(campaign.scheduled_for ? "Campaign scheduled" : "Bulk email processed"); setCampaign({ name: "", subject: "", body: "", candidate_ids: [], template_id: "", scheduled_for: "" }); await reload(); }, "Could not create campaign"); }
   async function saveProfile() { await act("profile", async () => { await apiPut(`/recruitment-ops/recruiters/${profile.user_id}`, { function: profile.function }); toast.success("Recruiter function saved"); await reload(); }, "Could not assign recruiter function"); }
-  async function findDuplicates() { await act("duplicates", async () => { const result = await apiGet<any[]>(`/recruitment-ops/duplicates/${duplicates.candidate_id}`); setDuplicateMatches(result.data || []); }, "Could not find duplicates"); }
+  async function findDuplicates() { await act("duplicates", async () => { const result = await apiGet<any[]>(`/recruitment-ops/duplicates/${duplicates.candidate_id}`); setDuplicateMatches(result.data || []); setDuplicates((current) => ({ ...current, survivor_id: current.candidate_id, merged_id: "" })); }, "Could not find duplicates"); }
+  async function applyPerformanceDates() { await act("performance", async () => { const response = await apiGet<Performance[]>("/recruitment-ops/recruiter-performance", { from: performanceRange.from || undefined, to: performanceRange.to || undefined, _: Date.now() }); setPerformance(extract<Performance>(response)); toast.success("Performance date filter applied"); }, "Could not refresh performance"); }
   async function mergeCandidates() { await act("merge", async () => { await apiPost("/recruitment-ops/duplicates/merge", { survivor_id: duplicates.survivor_id, merged_id: duplicates.merged_id }); toast.success("Candidate profiles merged"); setConfirmMerge(false); setDuplicateMatches([]); await reload(); }, "Could not merge candidates"); }
 
   return <div className="min-h-full w-full">
@@ -151,6 +162,7 @@ export function RecruitmentOperationsPage() {
     <div className="grid items-start gap-4 xl:grid-cols-2">
     <section className={`${card} p-4 sm:p-5`}>
       <div className="flex items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><UploadCloud className="h-5 w-5" aria-hidden="true" /></span><div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-blue-600">Ingestion</p><h2 className="mt-1 text-lg font-bold text-gray-900">Bulk resume processing</h2><p className="mt-1 text-sm text-gray-500">Parse text-based PDF or DOCX files and create candidate profiles.</p></div>{resumeFiles?.length ? <span className="ml-auto rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{resumeFiles.length} selected</span> : null}</div>
+      <div className="mt-5"><label className={label} htmlFor="resume-jobs">Application roles</label><select id="resume-jobs" multiple className={`${field} min-h-28`} value={resumeJobs} onChange={(event)=>setResumeJobs(Array.from(event.target.selectedOptions).map((option)=>option.value))}>{jobs.map((job)=><option key={job.id} value={job.id}>{job.title}</option>)}</select><p className="mt-1 text-xs text-gray-500">Select one or more destinations, or leave empty to create candidate profiles only.</p></div>
       <div className="mt-5 grid gap-4"><div><label className={label} htmlFor="resume-files">Resume files</label><input id="resume-files" className={field} type="file" multiple accept=".pdf,.docx" onChange={(e) => {setResumeFiles(e.target.files); setResumeResult(null);}} /></div><div><label className={label} htmlFor="resume-job">Destination</label><select id="resume-job" className={field} value={resumeJob} onChange={(e) => setResumeJob(e.target.value)}><option value="">Create candidates only</option>{jobs.map((j) => <option key={j.id} value={j.id}>Also apply to: {j.title}</option>)}</select></div><button className={button} disabled={busy === "resumes" || !resumeFiles?.length} onClick={uploadResumes}>{busy === "resumes" ? "Processing…" : "Process resumes"}<ArrowRight className="h-4 w-4" aria-hidden="true" /></button></div>
       {resumeResult && <div className="mt-6 space-y-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[{name:"Processed",value:resumeResult.total,tone:"bg-gray-50 text-gray-900"},{name:"Created",value:resumeResult.created,tone:"bg-green-50 text-green-800"},{name:"Matched",value:resumeResult.matched||0,tone:"bg-amber-50 text-amber-800"},{name:"Failed",value:resumeResult.failed,tone:"bg-red-50 text-red-800"}].map(item=><div key={item.name} className={`rounded-xl p-3 ${item.tone}`}><p className="text-xs opacity-75">{item.name}</p><p className="mt-1 text-xl font-bold tabular-nums">{item.value}</p></div>)}</div><div className="max-h-72 overflow-auto rounded-xl border border-gray-200"><table className="w-full min-w-[650px] text-left text-sm"><thead className="sticky top-0 bg-gray-50 text-xs text-gray-500"><tr><th className="px-4 py-3">File</th><th className="px-4 py-3">Result</th><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Next step</th></tr></thead><tbody className="divide-y">{resumeResult.results.map((row,index)=><tr key={`${row.file}-${index}`}><td className="px-4 py-3 font-medium">{row.file}</td><td className="px-4 py-3">{row.status.replaceAll("_"," ")}</td><td className="px-4 py-3">{row.extracted?.first_name || row.extracted?.last_name ? `${row.extracted?.first_name || ""} ${row.extracted?.last_name || ""}`.trim() : "—"}</td><td className="max-w-xs px-4 py-3 text-gray-600">{row.error || "Processed successfully."}</td></tr>)}</tbody></table></div></div>}
     </section>

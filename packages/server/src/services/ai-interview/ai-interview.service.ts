@@ -156,6 +156,9 @@ function fallbackQuestions(job: any, jobSkills: string[], count: number): AiInte
   pool.push(`How do you approach learning a new tool or technology quickly when a project demands it?`);
   pool.push(`Describe a time you disagreed with a teammate. How did you resolve it?`);
   pool.push(`Why are you interested in the ${title} role, and what would you most want to contribute?`);
+  while (pool.length < count) {
+    pool.push(`What is another experience or accomplishment that demonstrates your fit for the ${title} role? Please give a specific example.`);
+  }
   return pool.slice(0, count).map((text, i) => ({ id: `q${i + 1}`, text }));
 }
 
@@ -187,8 +190,17 @@ async function generateQuestions(
         .slice(0, count)
         .map((text: string, i: number) => ({ id: `q${i + 1}`, text: String(text).trim() }));
       if (arr.length >= 3) {
+        const fallback = fallbackQuestions(job, jobSkills, count);
+        const seen = new Set(arr.map((question) => question.text.toLowerCase()));
+        for (const question of fallback) {
+          if (arr.length >= count) break;
+          if (!seen.has(question.text.toLowerCase())) arr.push({ ...question, id: `q${arr.length + 1}` });
+        }
+        while (arr.length < count) {
+          arr.push({ id: `q${arr.length + 1}`, text: `Please describe another specific example that demonstrates your suitability for the ${job?.title || "role"}.` });
+        }
         logger.info(`AI interview questions generated via ${llm.key} (${arr.length})`);
-        return arr;
+        return arr.slice(0, count).map((question, index) => ({ ...question, id: `q${index + 1}` }));
       }
     } catch (err) {
       logger.warn("AI interview question generation failed; using fallback:", err);

@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import { authenticate, authorize } from "../middleware/auth.middleware";
 import { sendSuccess, sendPaginated } from "../../utils/response";
 import { ValidationError } from "../../utils/errors";
@@ -79,11 +80,17 @@ router.post("/bulk-resumes", uploadResumes.array("resumes", 100), async (req: Re
     const orgId = req.user!.empcloudOrgId;
     const files = (req.files as Express.Multer.File[] | undefined) || [];
     if (!files.length) return next(new ValidationError("No resume files provided"));
-    if (req.body.job_id) {
-      const job = await getDB().findOne<any>("job_postings", { id: String(req.body.job_id), organization_id: orgId });
-      if (!job) {
+    let jobIds: string[] = [];
+    try {
+      jobIds = req.body.job_ids ? z.array(z.string().uuid()).max(50).parse(JSON.parse(String(req.body.job_ids))) : req.body.job_id ? [z.string().uuid().parse(String(req.body.job_id))] : [];
+    } catch {
+      return next(new ValidationError("Invalid application role selection"));
+    }
+    if (jobIds.length) {
+      const jobs = await Promise.all(jobIds.map((jobId) => getDB().findOne<any>("job_postings", { id: jobId, organization_id: orgId })));
+      if (jobs.some((job) => !job)) {
         await Promise.all(files.map((file) => fs.rm(file.path, { force: true }).catch(() => undefined)));
-        return next(new ValidationError("The selected job does not exist or is not available to this organization"));
+        return next(new ValidationError("One or more selected application roles do not exist or are unavailable to this organization"));
       }
     }
     const results: any[] = [];
@@ -108,12 +115,13 @@ router.post("/bulk-resumes", uploadResumes.array("resumes", 100), async (req: Re
           results.push({ file: file.originalname, status: "duplicate_review_required", candidate_id: candidate.id, extracted: identity });
           continue;
         }
-        if (req.body.job_id) {
+        if (jobIds.length) {
           try {
-            const imported = await candidateService.bulkImportCandidates(orgId, String(req.body.job_id), [{ ...identity, phone: identity.phone || undefined, source: "bulk_resume" }]);
-            if (imported.skipped) status = "already_applied";
-            if (imported.failed.length) {
-              results.push({ file: file.originalname, status: "candidate_created_application_failed", candidate_id: candidate.id, extracted: identity, error: imported.failed[0]?.reason || "Candidate was created, but job application failed" });
+            const imports = await Promise.all(jobIds.map((jobId) => candidateService.bulkImportCandidates(orgId, jobId, [{ ...identity, phone: identity.phone || undefined, source: "bulk_resume" }])));
+            if (imports.every((imported) => imported.skipped)) status = "already_applied";
+            const failures = imports.flatMap((imported) => imported.failed || []);
+            if (failures.length) {
+              results.push({ file: file.originalname, status: "candidate_created_application_failed", candidate_id: candidate.id, extracted: identity, error: failures[0]?.reason || "Candidate was created, but one or more applications failed" });
               continue;
             }
           } catch (applicationError: any) {

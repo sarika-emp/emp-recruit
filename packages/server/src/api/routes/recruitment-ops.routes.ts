@@ -22,6 +22,11 @@ router.get("/duplicates/:candidateId", wrap((req) => ops.findDuplicates(req.user
 router.post("/duplicates/merge", wrap((req) => { const b = z.object({ survivor_id: z.string().uuid(), merged_id: z.string().uuid() }).parse(req.body); return ops.mergeCandidates(req.user!.empcloudOrgId, b.survivor_id, b.merged_id, req.user!.empcloudUserId); }));
 
 const ruleSchema = z.object({ name: z.string().min(1).max(200), trigger: z.enum(["application_created", "application_stage_changed", "offer_accepted"]), trigger_value: z.string().max(100).optional(), action_type: z.enum(["send_email", "assign_assessment", "create_task", "schedule_interview"]), action_config: z.record(z.any()).default({}), delay_minutes: z.number().int().min(0).max(525600).default(0), is_active: z.boolean().default(true) }).superRefine((value, ctx) => {
+  const requiredText = (key: string, label: string) => {
+    if (!String(value.action_config[key] || "").trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["action_config", key], message: `${label} is required` });
+  };
+  if (value.action_type === "send_email") { requiredText("subject", "Subject"); requiredText("body", "Description"); }
+  if (value.action_type === "create_task") { requiredText("title", "Task title"); requiredText("description", "Description"); }
   if (value.action_type === "assign_assessment" && !z.string().uuid().safeParse(value.action_config.template_id).success) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["action_config", "template_id"], message: "An assessment template is required" });
   }

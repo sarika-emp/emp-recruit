@@ -365,11 +365,17 @@ export function ReferralListPage() {
               <label className="block text-sm font-medium text-gray-700">{t("referrals.phone")}</label>
               <input
                 type="tel"
+                inputMode="tel"
+                maxLength={16}
                 value={form.phone}
                 // Strip anything that isn't a digit or phone punctuation as it's
                 // typed, so alphabetic input can't be entered at all. BUG-13.
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, phone: e.target.value.replace(/[^\d+\-()\s]/g, "") }))
+                  setForm((p) => {
+                    const cleaned = e.target.value.replace(/[^\d+\-()\s]/g, "");
+                    let digits = 0;
+                    return { ...p, phone: [...cleaned].filter((char) => !/\d/.test(char) || ++digits <= 12).join("") };
+                  })
                 }
                 className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />

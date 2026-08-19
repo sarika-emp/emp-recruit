@@ -428,14 +428,16 @@ export function CareerApplyPage() {
                 const val = answers[q.id] ?? "";
                 const set = (v: string) => setAnswers((a) => ({ ...a, [q.id]: v }));
                 const key = `screening_${q.id}`;
+                const questionText = /^ny years of\b/i.test(q.question.trim()) ? `How ma${q.question.trim()}` : q.question;
+                const usesYesNoOptions = q.type === "yes_no" || /^(can|do|does|did|is|are|will|would|have|has)\b/i.test(questionText.trim());
                 return (
                   <div key={q.id}>
                     <label className="block text-sm font-medium text-gray-700">
-                      {q.question} {q.required && <span className="text-red-500">*</span>}
+                      {questionText} {q.required && <span className="text-red-500">*</span>}
                     </label>
-                    {q.type === "yes_no" ? (
+                    {usesYesNoOptions ? (
                       <div className="mt-1 flex gap-4">
-                        {["Yes", "No"].map((opt) => (
+                        {["Yes", "No", "N/A"].map((opt) => (
                           <label key={opt} className="inline-flex items-center gap-1.5 text-sm text-gray-700">
                             <input
                               type="radio"

@@ -180,13 +180,18 @@ export async function listAutomationRules(orgId: number) {
 }
 
 export async function createAutomationRule(orgId: number, userId: number, data: any) {
-  return getDB().create<any>("recruitment_automation_rules", { organization_id: orgId, name: data.name, trigger: data.trigger, trigger_value: data.trigger_value || null, action_type: data.action_type, action_config: JSON.stringify(data.action_config || {}), delay_minutes: data.delay_minutes || 0, is_active: data.is_active !== false, created_by: userId });
+  const db = getDB();
+  const duplicate = await db.raw<any[][]>("SELECT id FROM recruitment_automation_rules WHERE organization_id=? AND archived_at IS NULL AND LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1", [orgId, data.name]);
+  if ((duplicate[0] || []).length) throw new ValidationError("An automation rule with this name already exists");
+  return db.create<any>("recruitment_automation_rules", { organization_id: orgId, name: data.name.trim(), trigger: data.trigger, trigger_value: data.trigger_value || null, action_type: data.action_type, action_config: JSON.stringify(data.action_config || {}), delay_minutes: data.delay_minutes || 0, is_active: data.is_active !== false, created_by: userId });
 }
 
 export async function updateAutomationRule(orgId: number, id: string, data: any) {
   const db = getDB();
   const existing = await db.findOne<any>("recruitment_automation_rules", { id, organization_id: orgId });
   if (!existing) throw new NotFoundError("Automation rule", id);
+  const duplicate = await db.raw<any[][]>("SELECT id FROM recruitment_automation_rules WHERE organization_id=? AND id<>? AND archived_at IS NULL AND LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1", [orgId, id, data.name]);
+  if ((duplicate[0] || []).length) throw new ValidationError("An automation rule with this name already exists");
   return db.update<any>("recruitment_automation_rules", id, {
     name: data.name, trigger: data.trigger, trigger_value: data.trigger_value || null,
     action_type: data.action_type, action_config: JSON.stringify(data.action_config || {}),
